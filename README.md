@@ -29,10 +29,10 @@ The platform is aimed at:
 - User satisfaction scores for collaboration and usability.
 
 ## Technology Stack
-- Backend: Python/Django or Node.js
-- Frontend: React or Vue.js
-- Database: PostgreSQL or MongoDB
-- Cloud Hosting: AWS or Azure
+- Backend: AWS Lambda
+- Frontend: React with Next.js
+- Database: DynamoDB
+- Cloud Hosting: AWS
 
 ## Proof of Concept (PoC) Strategy
 For the PoC, we are focusing on the **cryptocurrency market**. This decision was inspired by platforms like **[renora.io](https://renora.io)**, which have demonstrated the potential for innovation and success in the crypto trading space. By targeting crypto, we aim to leverage:
