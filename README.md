@@ -14,6 +14,9 @@ The platform is aimed at:
 - Portfolio managers and financial strategists.
 - Financial firms and hedge funds looking to optimize collaboration on trading prompts.
 
+The Ideal persona would be:
+- Working Professionals 25 years old and above who want exposure in the crypto markets
+
 ## Key Features
 1. **Prompt Repository**: A centralized space to store, version, and retrieve trading prompts.
 2. **Version Control**: Versioning for prompts to track changes and manage iterations.
