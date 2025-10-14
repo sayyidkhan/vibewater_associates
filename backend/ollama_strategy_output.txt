@@ -1,0 +1,194 @@
+uv run test_ollama_strategy.py                                                                       ─╯
+Testing Ollama connection...
+✓ Ollama is running with 1 model(s)
+  - gpt-oss:20b
+
+User Query:
+  I have $1000, please choose a high-return strategy that gives at least 7% returns monthly
+
+Ollama Response:
+--------------------------------------------------------------------------------
+================================================================================
+Calling Ollama with model: gpt-oss:20b
+URL: http://localhost:11434/api/generate
+================================================================================
+
+Sending request to Ollama...
+Response status: 200
+Streaming response:
+{"account":{"workspace":"Vibe Water Associates","section":"My Strategies"},"assistant_panel":{"greeting":"Hello","user_request":"I have $1000, please choose a high-return strategy that gives at least 7% returns monthly","assistant_reply":"We propose a high-return crypto strategy targeting 7% monthly returns with a high risk classification and includes a stop loss for risk management. Please review the risk warnings below."},"flowchart":{"nodes":[{"id":"start","type":"start","label":"Start Strategy"},{"id":"category","type":"category","label":"Crypto Category: ","meta":{"category":"DeFi"}},{"id":"entry","type":"entry_condition","label":"Set Entry Condition: ","meta":{"mode":"ai_optimized","rules":["Enter on a 5% price drop from the 20-day moving average"]}},{"id":"profit_target","type":"take_profit","label":"Profit Target: ","meta":{"target_pct":7.0}},{"id":"stop_loss","type":"stop_loss","label":"Stop Loss: ","meta":{"stop_pct":5.0,"added":true}},{"id":"end","type":"end","label":"End Strategy"}],"edges":[["start","category"],["category","entry"],["entry","profit_target"],["profit_target","stop_loss"],["stop_loss","end"]]},"toolbox":{"modules":["Crypto Category","Set Entry Condition","Define Exit Target","Manage Capital","Degen Class","Profit Target"],"quick_profit_targets":[0.5,2,4]},"degen_class":{"options":["High","Medium","Low"],"selected":"High"},"strategy_metrics":{"impact_monthly_return_delta_pct":7.0,"estimated_capital_required_usd":1000},"guardrails":{"enabled":[{"key":"no_short_selling","label":"No short selling","status":"ok"},{"key":"max_drawdown_10","label":"Max 10% Drawdown","status":"ok"},{"key":"high_risk_class","label":"High risk asset class selected","status":"warning"}],"violations":[]},"actions":{"explain_button":{"label":"Explain","enabled":true},"run_backtest_button":{"label":"Run Backtest","enabled":true}},"versioning":{"comments_enabled":true,"version_history_enabled":true}}
+
+[Model thinking: We need produce JSON representing a strategy state, with user query considered: "I have $1000, pleas...]
+[Received 1154 lines, 1929 chars]
+--------------------------------------------------------------------------------
+
+✓ Valid JSON received!
+
+Parsed Strategy:
+================================================================================
+{
+  "account": {
+    "workspace": "Vibe Water Associates",
+    "section": "My Strategies"
+  },
+  "assistant_panel": {
+    "greeting": "Hello",
+    "user_request": "I have $1000, please choose a high-return strategy that gives at least 7% returns monthly",
+    "assistant_reply": "We propose a high-return crypto strategy targeting 7% monthly returns with a high risk classification and includes a stop loss for risk management. Please review the risk warnings below."
+  },
+  "flowchart": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "label": "Start Strategy"
+      },
+      {
+        "id": "category",
+        "type": "category",
+        "label": "Crypto Category: ",
+        "meta": {
+          "category": "DeFi"
+        }
+      },
+      {
+        "id": "entry",
+        "type": "entry_condition",
+        "label": "Set Entry Condition: ",
+        "meta": {
+          "mode": "ai_optimized",
+          "rules": [
+            "Enter on a 5% price drop from the 20-day moving average"
+          ]
+        }
+      },
+      {
+        "id": "profit_target",
+        "type": "take_profit",
+        "label": "Profit Target: ",
+        "meta": {
+          "target_pct": 7.0
+        }
+      },
+      {
+        "id": "stop_loss",
+        "type": "stop_loss",
+        "label": "Stop Loss: ",
+        "meta": {
+          "stop_pct": 5.0,
+          "added": true
+        }
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "label": "End Strategy"
+      }
+    ],
+    "edges": [
+      [
+        "start",
+        "category"
+      ],
+      [
+        "category",
+        "entry"
+      ],
+      [
+        "entry",
+        "profit_target"
+      ],
+      [
+        "profit_target",
+        "stop_loss"
+      ],
+      [
+        "stop_loss",
+        "end"
+      ]
+    ]
+  },
+  "toolbox": {
+    "modules": [
+      "Crypto Category",
+      "Set Entry Condition",
+      "Define Exit Target",
+      "Manage Capital",
+      "Degen Class",
+      "Profit Target"
+    ],
+    "quick_profit_targets": [
+      0.5,
+      2,
+      4
+    ]
+  },
+  "degen_class": {
+    "options": [
+      "High",
+      "Medium",
+      "Low"
+    ],
+    "selected": "High"
+  },
+  "strategy_metrics": {
+    "impact_monthly_return_delta_pct": 7.0,
+    "estimated_capital_required_usd": 1000
+  },
+  "guardrails": {
+    "enabled": [
+      {
+        "key": "no_short_selling",
+        "label": "No short selling",
+        "status": "ok"
+      },
+      {
+        "key": "max_drawdown_10",
+        "label": "Max 10% Drawdown",
+        "status": "ok"
+      },
+      {
+        "key": "high_risk_class",
+        "label": "High risk asset class selected",
+        "status": "warning"
+      }
+    ],
+    "violations": []
+  },
+  "actions": {
+    "explain_button": {
+      "label": "Explain",
+      "enabled": true
+    },
+    "run_backtest_button": {
+      "label": "Run Backtest",
+      "enabled": true
+    }
+  },
+  "versioning": {
+    "comments_enabled": true,
+    "version_history_enabled": true
+  }
+}
+================================================================================
+
+Key Strategy Details:
+  Workspace: Vibe Water Associates
+  User Request: I have $1000, please choose a high-return strategy that gives at least 7% returns monthly
+  Monthly Return Impact: 7.0%
+  Capital Required: $1000
+  Strategy Nodes: 6
+
+Flowchart Nodes:
+    [start] Start Strategy
+    [category] Crypto Category: 
+      - category: DeFi
+    [entry_condition] Set Entry Condition: 
+      - mode: ai_optimized
+      - rules: ['Enter on a 5% price drop from the 20-day moving average']
+    [take_profit] Profit Target: 
+      - target_pct: 7.0
+    [stop_loss] Stop Loss: 
+      - stop_pct: 5.0
+      - added: True
+    [end] End Strategy
