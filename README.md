@@ -1,9 +1,32 @@
-# VibeWater Associates
+# 🌊 Vibe Water Associates - Algorithmic Trading Platform
 
-## Product Requirements Document: Vibewater Associates
+> A modern, chat-first algorithmic trading strategy builder that turns plain-English goals into validated, backtested strategies.
+
+## 🚀 Quick Start
+
+```bash
+# Clone and navigate to the project
+cd vibewater_associates
+
+# Start all services with Docker
+./start.sh
+
+# Or manually with Docker Compose
+docker-compose up -d
+```
+
+**Access the app**: http://localhost:3000
+
+---
+
+## 📖 Full Documentation
+
+See [PROJECT_README.md](./PROJECT_README.md) for complete setup instructions, architecture details, and API documentation.
+
+---
 
 ## Project Overview
-Vibewater Associates is a platform designed to streamline and maintain prompts for algorithmic trading and portfolio management. It provides a centralized, collaborative, and structured way to manage trading strategies, prompts, and portfolio optimization techniques.
+Vibewater Associates is a comprehensive platform for creating, backtesting, and managing algorithmic trading strategies. It combines conversational AI with visual strategy building to make algorithmic trading accessible to everyone.
 
 ## Problem Statement
 Algorithmic trading and portfolio management rely heavily on precise, well-formulated prompts and strategies to be effective. However, maintaining and organizing these prompts can become challenging as teams grow, markets evolve, and strategies diversify. Vibewater Associates aims to solve this by offering a platform to manage, version, and collaborate on these prompts efficiently.
