@@ -1,6 +1,6 @@
 """
 Test script for VectorBT integration
-Run this to verify VectorBT is working correctly
+Run this to verify – is working correctly
 """
 
 import asyncio
