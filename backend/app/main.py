@@ -9,12 +9,25 @@ from .routers import chat, strategies, backtests, websocket_chat
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    print("\n" + "="*80)
+    print("🚀 STARTING VIBE WATER ASSOCIATES API")
+    print("="*80)
+    
+    # Show LLM service configuration
+    from .services.llm_service import llm_service
+    if llm_service.use_anthropic:
+        print("🤖 LLM Service: Anthropic API")
+    else:
+        print("🤖 LLM Service: AWS Bedrock")
+    
     try:
         await connect_to_mongo()
         print("✓ Connected to MongoDB")
     except Exception as e:
         print(f"⚠️  MongoDB not available: {e}")
         print("   Continuing without database...")
+    
+    print("="*80 + "\n")
     yield
     # Shutdown
     try:

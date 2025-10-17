@@ -2,10 +2,13 @@ import os
 import json
 import boto3
 from typing import Dict, Any, AsyncGenerator
-from ..config import settings
+from dotenv import load_dotenv
 
-class BedrockService:
-    """Service for AWS Bedrock LLM integration"""
+# Load .env file directly
+load_dotenv()
+
+class LLMService:
+    """Service for LLM integration - supports Anthropic API (primary) and AWS Bedrock (fallback)"""
     
     SYSTEM_PROMPT = """You are an AI trading strategy assistant for Vibe Water Associates. Your role is to help users build algorithmic trading strategies through natural conversation.
 
@@ -158,21 +161,49 @@ I've created a high-return crypto strategy tailored to your $1000 capital with a
 """
 
     def __init__(self):
-        """Initialize Bedrock client"""
-        # Set AWS bearer token if provided
-        if settings.aws_bearer_token_bedrock:
-            os.environ['AWS_BEARER_TOKEN_BEDROCK'] = settings.aws_bearer_token_bedrock
+        """Initialize LLM client - checks for Anthropic API key first, falls back to Bedrock"""
+        # Check for Anthropic API key directly from environment
+        anthropic_key = os.getenv('ANTHROPIC_API_KEY', '').strip()
         
-        self.client = boto3.client(
-            service_name="bedrock-runtime",
-            region_name=settings.aws_region
-        )
-        # Use aws_model_id if provided, otherwise fall back to bedrock_model_id
-        self.model_id = settings.aws_model_id or settings.bedrock_model_id
+        print(f"\n🔍 Checking for ANTHROPIC_API_KEY...")
+        print(f"   Key found: {bool(anthropic_key)}")
+        if anthropic_key:
+            print(f"   Key length: {len(anthropic_key)} characters")
+            print(f"   Key preview: {anthropic_key[:10]}...")
+        
+        if anthropic_key:
+            # Use Anthropic API
+            try:
+                from anthropic import AsyncAnthropic
+                self.use_anthropic = True
+                self.anthropic_client = AsyncAnthropic(api_key=anthropic_key)
+                # Get model from .env or use default
+                self.anthropic_model = os.getenv('ANTHROPIC_MODEL', 'claude-3-5-haiku-20241022').strip()
+                print(f"✅ Using Anthropic API (Model: {self.anthropic_model})")
+            except Exception as e:
+                print(f"⚠️  Failed to initialize Anthropic: {str(e)}")
+                print("Falling back to Bedrock...")
+                self.use_anthropic = False
+        else:
+            print("ℹ️  No ANTHROPIC_API_KEY found, using Bedrock")
+            self.use_anthropic = False
+        
+        # Initialize Bedrock as fallback
+        if not self.use_anthropic:
+            aws_token = os.getenv('AWS_BEARER_TOKEN_BEDROCK', '').strip()
+            if aws_token:
+                os.environ['AWS_BEARER_TOKEN_BEDROCK'] = aws_token
+            
+            self.client = boto3.client(
+                service_name="bedrock-runtime",
+                region_name=os.getenv('AWS_REGION', 'us-east-1')
+            )
+            self.model_id = os.getenv('BEDROCK_MODEL_ID', 'us.anthropic.claude-3-5-haiku-20241022-v1:0')
+            print("✅ Using AWS Bedrock")
     
     async def chat_stream(self, messages: list[Dict[str, Any]]) -> AsyncGenerator[str, None]:
         """
-        Stream chat responses from Bedrock
+        Stream chat responses from Anthropic API or Bedrock
         
         Args:
             messages: List of message dicts with 'role' and 'content'
@@ -180,68 +211,106 @@ I've created a high-return crypto strategy tailored to your $1000 capital with a
         Yields:
             Chunks of the response text
         """
-        # Convert messages to Bedrock format
-        bedrock_messages = []
-        for msg in messages:
-            if msg["role"] in ["user", "assistant"]:
-                bedrock_messages.append({
-                    "role": msg["role"],
-                    "content": [{"text": msg["content"]}]
-                })
-        
-        print("\n" + "="*80)
-        print("🚀 BEDROCK REQUEST")
-        print("="*80)
-        print(f"Model ID: {self.model_id}")
-        print(f"Number of messages: {len(bedrock_messages)}")
-        print("\nMessages:")
-        for i, msg in enumerate(bedrock_messages):
-            print(f"\n[{i+1}] Role: {msg['role']}")
-            print(f"Content: {msg['content'][0]['text'][:200]}...")
-        print("\nSystem Prompt (first 500 chars):")
-        print(self.SYSTEM_PROMPT[:500] + "...")
-        print("="*80)
-        
-        try:
-            # Call Bedrock converse API
-            response = self.client.converse(
-                modelId=self.model_id,
-                messages=bedrock_messages,
-                system=[{"text": self.SYSTEM_PROMPT}]
-            )
+        if self.use_anthropic:
+            # Use Anthropic API
+            anthropic_messages = []
+            for msg in messages:
+                if msg["role"] in ["user", "assistant"]:
+                    anthropic_messages.append({
+                        "role": msg["role"],
+                        "content": msg["content"]
+                    })
             
             print("\n" + "="*80)
-            print("📥 BEDROCK RESPONSE")
+            print("🚀 ANTHROPIC API REQUEST")
             print("="*80)
-            print(f"Response keys: {response.keys()}")
+            print(f"Model: {self.anthropic_model}")
+            print(f"Number of messages: {len(anthropic_messages)}")
+            print("="*80)
             
-            # Extract response text
-            if "output" in response and "message" in response["output"]:
-                content = response["output"]["message"]["content"]
-                if content and len(content) > 0:
-                    text = content[0].get("text", "")
-                    print(f"\nResponse length: {len(text)} characters")
-                    print("\nFull Response:")
-                    print(text)
-                    print("="*80 + "\n")
-                    
-                    # Don't stream the raw response - we'll parse it first and stream only the user_message
-                    # Just yield the complete response for parsing
-                    yield text
-            else:
-                error_msg = "Error: No response from model"
-                print(f"\n❌ {error_msg}")
-                print(f"Response structure: {response}")
+            try:
+                full_response = ""
+                async with self.anthropic_client.messages.stream(
+                    model=self.anthropic_model,
+                    max_tokens=4096,
+                    system=self.SYSTEM_PROMPT,
+                    messages=anthropic_messages
+                ) as stream:
+                    async for text in stream.text_stream:
+                        full_response += text
+                
+                print("\n" + "="*80)
+                print("📥 ANTHROPIC API RESPONSE")
+                print("="*80)
+                print(f"Response length: {len(full_response)} characters")
+                print("="*80 + "\n")
+                
+                yield full_response
+                
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                print(f"\n❌ ANTHROPIC API ERROR")
+                print("="*80)
+                print(error_msg)
                 print("="*80 + "\n")
                 yield error_msg
-                
-        except Exception as e:
-            error_msg = f"Error: {str(e)}"
-            print(f"\n❌ BEDROCK ERROR")
+        else:
+            # Use Bedrock
+            bedrock_messages = []
+            for msg in messages:
+                if msg["role"] in ["user", "assistant"]:
+                    bedrock_messages.append({
+                        "role": msg["role"],
+                        "content": [{"text": msg["content"]}]
+                    })
+            
+            print("\n" + "="*80)
+            print("🚀 BEDROCK REQUEST")
             print("="*80)
-            print(error_msg)
-            print("="*80 + "\n")
-            yield error_msg
+            print(f"Model ID: {self.model_id}")
+            print(f"Number of messages: {len(bedrock_messages)}")
+            print("="*80)
+            
+            try:
+                # Call Bedrock converse API
+                response = self.client.converse(
+                    modelId=self.model_id,
+                    messages=bedrock_messages,
+                    system=[{"text": self.SYSTEM_PROMPT}]
+                )
+                
+                print("\n" + "="*80)
+                print("📥 BEDROCK RESPONSE")
+                print("="*80)
+                print(f"Response keys: {response.keys()}")
+                
+                # Extract response text
+                if "output" in response and "message" in response["output"]:
+                    content = response["output"]["message"]["content"]
+                    if content and len(content) > 0:
+                        text = content[0].get("text", "")
+                        print(f"\nResponse length: {len(text)} characters")
+                        print("\nFull Response:")
+                        print(text)
+                        print("="*80 + "\n")
+                        
+                        # Don't stream the raw response - we'll parse it first and stream only the user_message
+                        # Just yield the complete response for parsing
+                        yield text
+                else:
+                    error_msg = "Error: No response from model"
+                    print(f"\n❌ {error_msg}")
+                    print(f"Response structure: {response}")
+                    print("="*80 + "\n")
+                    yield error_msg
+                    
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                print(f"\n❌ BEDROCK ERROR")
+                print("="*80)
+                print(error_msg)
+                print("="*80 + "\n")
+                yield error_msg
     
     def parse_response(self, response_text: str) -> Dict[str, Any]:
         """
@@ -341,4 +410,4 @@ I've created a high-return crypto strategy tailored to your $1000 capital with a
                 "error": str(e)
             }
 
-bedrock_service = BedrockService()
+llm_service = LLMService()
