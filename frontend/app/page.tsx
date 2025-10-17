@@ -1,23 +1,52 @@
 "use client";
 
-import { useState } from "react";
-import { Send, Lightbulb, TrendingUp, ArrowLeftRight, TrendingDown } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { Send, Lightbulb, TrendingUp, ArrowLeftRight, TrendingDown, Wifi, WifiOff } from "lucide-react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import { parseStrategyFromChat } from "@/lib/api";
+import { useWebSocketChat } from "@/hooks/useWebSocketChat";
 import type { ParsedStrategy, ChatMessage, Guardrail } from "@/types";
 
 export default function Dashboard() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "assistant",
-      content: "Hello! I'm your AI Trading Assistant. Tell me, what kind of trading strategy are you looking for today?",
-      timestamp: new Date().toISOString(),
-    },
-  ]);
+  const router = useRouter();
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
   const [parsedStrategy, setParsedStrategy] = useState<ParsedStrategy | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Use WebSocket hook
+  const { messages, isConnected, isLoading, error, strategyJson, streamingMessage, sendMessage } = useWebSocketChat();
+  
+  // Auto-scroll to bottom when messages change or streaming updates
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streamingMessage, isLoading]);
+  
+  // Update parsed strategy when strategyJson changes
+  useEffect(() => {
+    if (strategyJson) {
+      // Convert strategyJson to ParsedStrategy format
+      const parsed: ParsedStrategy = {
+        strategy_schema: {
+          nodes: strategyJson.flowchart?.nodes || [],
+          connections: strategyJson.flowchart?.edges?.map((edge: any, i: number) => ({
+            id: `e${i}`,
+            source: edge[0],
+            target: edge[1]
+          })) || []
+        },
+        guardrails: strategyJson.guardrails?.enabled?.map((g: any) => ({
+          type: g.key,
+          level: g.status === "ok" ? "info" : g.status === "warning" ? "warning" : "error",
+          message: g.label
+        })) || [],
+        rationale: strategyJson.assistant_panel?.assistant_reply || "Strategy created",
+        estimated_return: strategyJson.strategy_metrics?.impact_monthly_return_delta_pct || 0,
+        required_capital: strategyJson.strategy_metrics?.estimated_capital_required_usd || 0
+      };
+      setParsedStrategy(parsed);
+    }
+  }, [strategyJson]);
 
   const examples = [
     { label: "Momentum", icon: TrendingUp },
@@ -26,40 +55,10 @@ export default function Dashboard() {
     { label: "Long/Short", icon: Lightbulb },
   ];
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
-
-    const userMessage: ChatMessage = {
-      role: "user",
-      content: input,
-      timestamp: new Date().toISOString(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
+  const handleSend = () => {
+    if (!input.trim() || isLoading || !isConnected) return;
+    sendMessage(input);
     setInput("");
-    setLoading(true);
-
-    try {
-      const result = await parseStrategyFromChat(input);
-      setParsedStrategy(result);
-
-      const assistantMessage: ChatMessage = {
-        role: "assistant",
-        content: result.rationale,
-        timestamp: new Date().toISOString(),
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      const errorMessage: ChatMessage = {
-        role: "assistant",
-        content: "I'm having trouble parsing that strategy. Could you provide more details about your trading goals, capital, and risk tolerance?",
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleExampleClick = (example: string) => {
@@ -76,6 +75,19 @@ export default function Dashboard() {
         return "✅";
     }
   };
+  
+  const handleBuildStrategy = () => {
+    // Pass the strategy data and messages to the builder page
+    const state = {
+      strategyJson: strategyJson,
+      messages: messages,
+      parsedStrategy: parsedStrategy
+    };
+    
+    // Store in sessionStorage for the builder page to access
+    sessionStorage.setItem('builderState', JSON.stringify(state));
+    router.push('/builder');
+  };
 
   return (
     <div className="container mx-auto px-6 py-8">
@@ -90,8 +102,43 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Chat Section */}
           <div className="space-y-6">
-            <Card className="h-[500px] flex flex-col">
+            <Card className="h-[700px] flex flex-col">
+              {/* Connection Status */}
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-800">
+                <h3 className="font-semibold">AI Chat</h3>
+                <div className="flex items-center gap-2">
+                  {isConnected ? (
+                    <>
+                      <Wifi className="w-4 h-4 text-green-500" />
+                      <span className="text-xs text-green-500">Connected</span>
+                    </>
+                  ) : (
+                    <>
+                      <WifiOff className="w-4 h-4 text-yellow-500" />
+                      <span className="text-xs text-yellow-500">Connecting...</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              
               <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+                {/* Initial greeting */}
+                {messages.length === 0 && isConnected && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[80%] rounded-lg p-4 bg-card-hover text-foreground">
+                      <p className="text-sm">Hello! I'm your AI Trading Assistant. Tell me, what kind of trading strategy are you looking for today?</p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Error message */}
+                {error && (
+                  <div className="flex justify-start">
+                    <div className="max-w-[80%] rounded-lg p-4 bg-red-500/10 border border-red-500/30">
+                      <p className="text-sm text-red-500">{error}</p>
+                    </div>
+                  </div>
+                )}
                 {messages.map((message, index) => (
                   <div
                     key={index}
@@ -108,27 +155,51 @@ export default function Dashboard() {
                     </div>
                   </div>
                 ))}
-                {loading && (
+                {isLoading && (
                   <div className="flex justify-start">
                     <div className="bg-card-hover rounded-lg p-4">
-                      <p className="text-sm text-gray-400">Analyzing your strategy...</p>
+                      {streamingMessage ? (
+                        <p className="text-sm whitespace-pre-wrap">{streamingMessage}<span className="inline-block w-1 h-4 bg-gray-400 ml-1 animate-pulse"></span></p>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <div className="flex gap-1">
+                            <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                            <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                            <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                          </div>
+                          <p className="text-sm text-gray-400">AI is thinking...</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
+                {/* Invisible div for auto-scroll */}
+                <div ref={messagesEndRef} />
               </div>
 
               <div className="border-t border-gray-800 pt-4">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
+                <div className="flex gap-2 items-end">
+                  <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    onKeyPress={(e) => e.key === "Enter" && handleSend()}
-                    placeholder="e.g., Buy 10 shares of AAPL when its RSI crosses below 30 and sell when it crosses above 70."
-                    className="flex-1 bg-card-hover border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-                    disabled={loading}
+                    onKeyPress={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }}
+                    placeholder="e.g., I have $1000, please choose a strategy that gives at least 7% returns monthly"
+                    className="flex-1 bg-card-hover border border-gray-700 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 resize-none min-h-[60px] max-h-[200px]"
+                    disabled={isLoading || !isConnected}
+                    rows={2}
+                    style={{ height: 'auto' }}
+                    onInput={(e) => {
+                      const target = e.target as HTMLTextAreaElement;
+                      target.style.height = 'auto';
+                      target.style.height = Math.min(target.scrollHeight, 200) + 'px';
+                    }}
                   />
-                  <Button onClick={handleSend} disabled={loading}>
+                  <Button onClick={handleSend} disabled={isLoading || !isConnected}>
                     <Send className="w-4 h-4" />
                   </Button>
                 </div>
@@ -203,14 +274,14 @@ export default function Dashboard() {
                       <Lightbulb className="w-4 h-4 mr-2" />
                       Explain
                     </Button>
-                    <Button size="md" className="flex-1">
-                      Run Backtest
+                    <Button size="md" className="flex-1" onClick={handleBuildStrategy}>
+                      Build Strategy
                     </Button>
                   </div>
                 </Card>
               </>
             ) : (
-              <Card className="h-[500px] flex items-center justify-center">
+              <Card className="h-[700px] flex items-center justify-center">
                 <div className="text-center text-gray-500">
                   <Lightbulb className="w-12 h-12 mx-auto mb-4 opacity-50" />
                   <p>Your parsed strategy will appear here</p>

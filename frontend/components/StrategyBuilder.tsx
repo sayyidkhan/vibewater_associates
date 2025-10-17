@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import ReactFlow, {
   Node,
   Edge,
@@ -12,28 +12,38 @@ import ReactFlow, {
   useEdgesState,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { MessageSquare, History, Bitcoin, TrendingUp, Target, AlertCircle, DollarSign, Shield } from "lucide-react";
+import { MessageSquare, History, Bitcoin, TrendingUp, Target, AlertCircle, DollarSign, Shield, Send, Wifi, WifiOff } from "lucide-react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import type { StrategySchema, Guardrail } from "@/types";
+import { useWebSocketChat } from "@/hooks/useWebSocketChat";
 
 interface StrategyBuilderProps {
   schema?: StrategySchema;
   onSchemaChange?: (schema: StrategySchema) => void;
+  initialData?: {
+    strategyJson?: any;
+    messages?: any[];
+    parsedStrategy?: any;
+  };
 }
 
 const nodeTypes = {
-  start: { icon: TrendingUp, label: "Start Strategy", color: "bg-primary" },
-  crypto_category: { icon: Bitcoin, label: "Crypto Category", color: "bg-blue-600" },
-  entry_condition: { icon: TrendingUp, label: "Set Entry Condition", color: "bg-green-600" },
-  exit_target: { icon: Target, label: "Profit Target", color: "bg-blue-500" },
-  stop_loss: { icon: AlertCircle, label: "Stop Loss", color: "bg-red-600" },
-  capital: { icon: DollarSign, label: "Manage Capital", color: "bg-yellow-600" },
-  risk_class: { icon: Shield, label: "Degen Class", color: "bg-purple-600" },
-  end: { icon: Target, label: "End Strategy", color: "bg-gray-600" },
+  start: { icon: TrendingUp, label: "Start Strategy", color: "#3b82f6" },
+  crypto_category: { icon: Bitcoin, label: "Crypto Category", color: "#2563eb" },
+  category: { icon: Bitcoin, label: "Crypto Category", color: "#2563eb" },
+  entry_condition: { icon: TrendingUp, label: "Set Entry Condition", color: "#16a34a" },
+  entry: { icon: TrendingUp, label: "Set Entry Condition", color: "#16a34a" },
+  exit_target: { icon: Target, label: "Profit Target", color: "#3b82f6" },
+  take_profit: { icon: Target, label: "Profit Target", color: "#3b82f6" },
+  profit_target: { icon: Target, label: "Profit Target", color: "#3b82f6" },
+  stop_loss: { icon: AlertCircle, label: "Stop Loss", color: "#dc2626" },
+  capital: { icon: DollarSign, label: "Manage Capital", color: "#ca8a04" },
+  risk_class: { icon: Shield, label: "Degen Class", color: "#9333ea" },
+  end: { icon: Target, label: "End Strategy", color: "#4b5563" },
 };
 
-export default function StrategyBuilder({ schema, onSchemaChange }: StrategyBuilderProps) {
+export default function StrategyBuilder({ schema, onSchemaChange, initialData }: StrategyBuilderProps) {
   const initialNodes: Node[] = schema?.nodes.map((node) => ({
     id: node.id,
     type: "default",
@@ -50,6 +60,115 @@ export default function StrategyBuilder({ schema, onSchemaChange }: StrategyBuil
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [inputMessage, setInputMessage] = useState("");
+  const [degenClass, setDegenClass] = useState("High");
+  const [estimatedCapital, setEstimatedCapital] = useState(1000);
+  const [monthlyReturn, setMonthlyReturn] = useState(7.0);
+  const [currentGuardrails, setCurrentGuardrails] = useState<Guardrail[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // WebSocket chat integration with initial messages from previous page
+  const initialMessages = initialData?.messages || [];
+  const { messages, isConnected, isLoading, error, strategyJson, streamingMessage, sendMessage } = useWebSocketChat(
+    'ws://localhost:8000/ws/chat',
+    initialMessages
+  );
+  
+  // Auto-scroll to bottom when messages change or streaming updates
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, streamingMessage, isLoading]);
+  
+  // Initialize with data from previous page
+  useEffect(() => {
+    if (initialData?.strategyJson) {
+      const json = initialData.strategyJson;
+      
+      // Update flowchart
+      if (json.flowchart?.nodes) {
+        const newNodes: Node[] = json.flowchart.nodes.map((node: any, index: number) => {
+          const nodeConfig = nodeTypes[node.type as keyof typeof nodeTypes];
+          
+          // Extract detailed info from meta
+          let detailText = "";
+          if (node.meta) {
+            if (node.meta.category) {
+              detailText = node.meta.category;
+            } else if (node.meta.mode) {
+              detailText = node.meta.mode === "ai_optimized" ? "AI-Optimized" : node.meta.mode;
+            } else if (node.meta.target_pct) {
+              detailText = `${node.meta.target_pct}%`;
+            } else if (node.meta.stop_pct) {
+              detailText = `${node.meta.stop_pct}%`;
+            } else if (node.meta.rules && node.meta.rules.length > 0) {
+              detailText = node.meta.rules[0];
+            }
+          }
+          
+          return {
+            id: node.id,
+            type: "default",
+            position: { x: 250, y: 50 + index * 100 },
+            data: { 
+              label: (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    {nodeConfig && <nodeConfig.icon className="w-4 h-4" />}
+                    <span className="font-medium">{node.label}</span>
+                  </div>
+                  {detailText && (
+                    <div className="text-xs opacity-80 ml-6">{detailText}</div>
+                  )}
+                </div>
+              ),
+            },
+            style: {
+              background: nodeConfig?.color || "#4b5563",
+              color: "white",
+              border: "1px solid #374151",
+              borderRadius: "8px",
+              padding: "10px",
+              minWidth: "180px",
+            },
+          };
+        });
+        setNodes(newNodes);
+      }
+      
+      // Update edges
+      if (json.flowchart?.edges) {
+        const newEdges: Edge[] = json.flowchart.edges.map((edge: any, index: number) => ({
+          id: `e${index + 1}`,
+          source: edge[0],
+          target: edge[1],
+        }));
+        setEdges(newEdges);
+      }
+      
+      // Update configuration
+      if (json.degen_class?.selected) {
+        setDegenClass(json.degen_class.selected);
+      }
+      
+      if (json.strategy_metrics) {
+        if (json.strategy_metrics.estimated_capital_required_usd) {
+          setEstimatedCapital(json.strategy_metrics.estimated_capital_required_usd);
+        }
+        if (json.strategy_metrics.impact_monthly_return_delta_pct) {
+          setMonthlyReturn(json.strategy_metrics.impact_monthly_return_delta_pct);
+        }
+      }
+      
+      if (json.guardrails?.enabled) {
+        const newGuardrails: Guardrail[] = json.guardrails.enabled.map((g: any) => ({
+          type: g.key,
+          level: g.status === "ok" ? "info" : g.status === "warning" ? "warning" : "error",
+          message: g.label,
+        }));
+        setCurrentGuardrails(newGuardrails);
+      }
+    }
+  }, [initialData, setNodes, setEdges]);
 
   const onConnect = useCallback(
     (params: Connection) => setEdges((eds) => addEdge(params, eds)),
@@ -82,49 +201,238 @@ export default function StrategyBuilder({ schema, onSchemaChange }: StrategyBuil
     setNodes((nds) => [...nds, newNode]);
   };
 
-  const guardrails: Guardrail[] = [
-    { type: "no_short_selling", level: "info", message: "No short selling" },
-    { type: "max_drawdown", level: "info", message: "Max 10% Drawdown" },
-    { type: "high_risk_asset", level: "warning", message: "High risk asset class selected" },
-    { type: "no_stop_loss", level: "error", message: "No stop loss (Critical Warning)" },
-  ];
+  // Update UI when strategy JSON is received from backend
+  useEffect(() => {
+    if (strategyJson) {
+      console.log('🔄 Strategy JSON received, updating UI:', strategyJson);
+      
+      // Update flowchart nodes
+      if (strategyJson.flowchart?.nodes) {
+        console.log('📊 Updating flowchart with', strategyJson.flowchart.nodes.length, 'nodes');
+        const newNodes: Node[] = strategyJson.flowchart.nodes.map((node: any, index: number) => {
+          const nodeConfig = nodeTypes[node.type as keyof typeof nodeTypes];
+          
+          // Extract detailed info from meta
+          let detailText = "";
+          if (node.meta) {
+            if (node.meta.category) {
+              detailText = node.meta.category;
+            } else if (node.meta.mode) {
+              detailText = node.meta.mode === "ai_optimized" ? "AI-Optimized" : node.meta.mode;
+            } else if (node.meta.target_pct) {
+              detailText = `${node.meta.target_pct}%`;
+            } else if (node.meta.stop_pct) {
+              detailText = `${node.meta.stop_pct}%`;
+            } else if (node.meta.rules && node.meta.rules.length > 0) {
+              detailText = node.meta.rules[0];
+            }
+          }
+          
+          return {
+            id: node.id,
+            type: "default",
+            position: { x: 250, y: 50 + index * 100 },
+            data: { 
+              label: (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    {nodeConfig && <nodeConfig.icon className="w-4 h-4" />}
+                    <span className="font-medium">{node.label}</span>
+                  </div>
+                  {detailText && (
+                    <div className="text-xs opacity-80 ml-6">{detailText}</div>
+                  )}
+                </div>
+              ),
+            },
+            style: {
+              background: nodeConfig?.color || "#4b5563",
+              color: "white",
+              border: "1px solid #374151",
+              borderRadius: "8px",
+              padding: "10px",
+              minWidth: "180px",
+            },
+          };
+        });
+        setNodes(newNodes);
+      }
+      
+      // Update edges
+      if (strategyJson.flowchart?.edges) {
+        const newEdges: Edge[] = strategyJson.flowchart.edges.map((edge: any, index: number) => ({
+          id: `e${index + 1}`,
+          source: edge[0],
+          target: edge[1],
+        }));
+        setEdges(newEdges);
+      }
+      
+      // Update degen class
+      if (strategyJson.degen_class?.selected) {
+        console.log('🎲 Updating degen class to:', strategyJson.degen_class.selected);
+        setDegenClass(strategyJson.degen_class.selected);
+      }
+      
+      // Update metrics
+      if (strategyJson.strategy_metrics) {
+        console.log('📈 Updating metrics:', strategyJson.strategy_metrics);
+        if (strategyJson.strategy_metrics.estimated_capital_required_usd) {
+          setEstimatedCapital(strategyJson.strategy_metrics.estimated_capital_required_usd);
+        }
+        if (strategyJson.strategy_metrics.impact_monthly_return_delta_pct) {
+          setMonthlyReturn(strategyJson.strategy_metrics.impact_monthly_return_delta_pct);
+        }
+      }
+      
+      // Update guardrails
+      if (strategyJson.guardrails?.enabled) {
+        console.log('🛡️ Updating guardrails:', strategyJson.guardrails.enabled.length, 'items');
+        const newGuardrails: Guardrail[] = strategyJson.guardrails.enabled.map((g: any) => ({
+          type: g.key,
+          level: g.status === "ok" ? "info" : g.status === "warning" ? "warning" : "error",
+          message: g.label,
+        }));
+        setCurrentGuardrails(newGuardrails);
+      }
+    }
+  }, [strategyJson, setNodes, setEdges]);
+  
+  const handleSendMessage = () => {
+    if (inputMessage.trim() && isConnected) {
+      sendMessage(inputMessage);
+      setInputMessage("");
+    }
+  };
+  
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-200px)]">
       {/* Left Sidebar - Chat */}
       <div className="lg:col-span-1">
         <Card className="h-full flex flex-col">
-          <div className="flex items-center gap-2 mb-4 pb-4 border-b border-gray-800">
-            <MessageSquare className="w-5 h-5" />
-            <h3 className="font-semibold">AI Assistant</h3>
+          <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-800">
+            <div className="flex items-center gap-2">
+              <MessageSquare className="w-5 h-5" />
+              <h3 className="font-semibold">AI Assistant</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              {isConnected ? (
+                <>
+                  <Wifi className="w-4 h-4 text-green-500" />
+                  <span className="text-xs text-green-500">Connected</span>
+                </>
+              ) : (
+                <>
+                  <WifiOff className="w-4 h-4 text-yellow-500" />
+                  <span className="text-xs text-yellow-500">Connecting...</span>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-4 mb-4">
-            <div className="bg-card-hover rounded-lg p-3">
-              <p className="text-sm">
-                Hello! I'm your AI Trading Assistant. Tell me, what kind of trading strategy are you looking for today?
-              </p>
-            </div>
-
-            <div className="bg-primary rounded-lg p-3 ml-8">
-              <p className="text-sm text-white">
-                I have $1000, please choose for me the right strategy that gives at least 7% returns monthly.
-              </p>
-            </div>
-
-            <div className="bg-card-hover rounded-lg p-3">
-              <p className="text-sm">
-                Great! I'm parsing your request for a high-return strategy with your given capital. I'll outline the key components and potential risks.
-              </p>
-            </div>
+            {/* Connection status */}
+            {!isConnected && (
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                <p className="text-sm text-yellow-500">Connecting to AI assistant...</p>
+              </div>
+            )}
+            
+            {/* Error message */}
+            {error && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                <p className="text-sm text-red-500">{error}</p>
+              </div>
+            )}
+            
+            {/* Strategy updated notification */}
+            {strategyJson && (
+              <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3">
+                <p className="text-sm text-green-500">✅ Strategy builder updated with new configuration</p>
+              </div>
+            )}
+            
+            {/* Initial greeting */}
+            {messages.length === 0 && isConnected && (
+              <div className="bg-card-hover rounded-lg p-3">
+                <p className="text-sm">
+                  Hello! I'm your AI Trading Assistant. Tell me, what kind of trading strategy are you looking for today?
+                </p>
+              </div>
+            )}
+            
+            {/* Chat messages */}
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className={`rounded-lg p-3 ${
+                  msg.role === "user"
+                    ? "bg-primary text-white ml-8"
+                    : "bg-card-hover"
+                }`}
+              >
+                <p className="text-sm">{msg.content}</p>
+              </div>
+            ))}
+            
+            {/* Loading indicator */}
+            {isLoading && (
+              <div className="bg-card-hover rounded-lg p-3">
+                {streamingMessage ? (
+                  <p className="text-sm whitespace-pre-wrap">{streamingMessage}<span className="inline-block w-1 h-4 bg-gray-400 ml-1 animate-pulse"></span></p>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                    </div>
+                    <p className="text-sm text-gray-400">AI is thinking...</p>
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Invisible div for auto-scroll */}
+            <div ref={messagesEndRef} />
           </div>
 
           <div className="border-t border-gray-800 pt-4">
-            <input
-              type="text"
-              placeholder="Type your message..."
-              className="w-full bg-card-hover border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            />
+            <div className="flex gap-2 items-end">
+              <textarea
+                placeholder="Type your message..."
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                disabled={!isConnected || isLoading}
+                className="flex-1 bg-card-hover border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 resize-none min-h-[60px] max-h-[200px]"
+                rows={2}
+                style={{ height: 'auto' }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement;
+                  target.style.height = 'auto';
+                  target.style.height = Math.min(target.scrollHeight, 200) + 'px';
+                }}
+              />
+              <button
+                onClick={handleSendMessage}
+                disabled={!isConnected || isLoading || !inputMessage.trim()}
+                className="bg-primary hover:bg-primary/80 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg px-3 py-2 transition-colors"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </Card>
 
@@ -209,8 +517,9 @@ export default function StrategyBuilder({ schema, onSchemaChange }: StrategyBuil
                 {["High", "Medium", "Low"].map((level) => (
                   <button
                     key={level}
+                    onClick={() => setDegenClass(level)}
                     className={`p-2 rounded text-sm transition-colors ${
-                      level === "High"
+                      level === degenClass
                         ? "bg-primary text-white"
                         : "bg-card-hover hover:bg-primary/20"
                     }`}
@@ -227,7 +536,7 @@ export default function StrategyBuilder({ schema, onSchemaChange }: StrategyBuil
                 <TrendingUp className="w-4 h-4 text-primary" />
                 <span className="text-sm font-medium">Strategy Impact:</span>
               </div>
-              <p className="text-sm">+0.5% expected monthly returns</p>
+              <p className="text-sm">+{monthlyReturn}% expected monthly returns</p>
             </div>
 
             {/* Estimated Capital */}
@@ -236,14 +545,17 @@ export default function StrategyBuilder({ schema, onSchemaChange }: StrategyBuil
                 <DollarSign className="w-4 h-4" />
                 <span className="text-sm font-medium">Estimated Capital Required:</span>
               </div>
-              <p className="text-sm">$1000</p>
+              <p className="text-sm">${estimatedCapital.toLocaleString()}</p>
             </div>
 
             {/* Guardrails */}
             <div>
               <h4 className="text-sm font-medium mb-3">Guardrails (Safety Nets)</h4>
               <div className="space-y-2">
-                {guardrails.map((guardrail, index) => (
+                {(currentGuardrails.length > 0 ? currentGuardrails : [
+                  { type: "no_short_selling", level: "info" as const, message: "No short selling" },
+                  { type: "max_drawdown", level: "info" as const, message: "Max 10% Drawdown" },
+                ]).map((guardrail, index) => (
                   <div
                     key={index}
                     className={`flex items-center gap-2 p-2 rounded-lg text-sm ${

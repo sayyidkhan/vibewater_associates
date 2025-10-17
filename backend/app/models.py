@@ -105,6 +105,18 @@ class ParsedStrategy(BaseModel):
 class ChatRequest(BaseModel):
     text: str
 
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant", "system"]
+    content: str
+
+class ChatHistoryRequest(BaseModel):
+    messages: List[ChatMessage]
+
+class StrategyBuilderResponse(BaseModel):
+    user_message: str
+    strategy_json: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
 class BacktestRequest(BaseModel):
     strategy_id: str
     params: BacktestParams
