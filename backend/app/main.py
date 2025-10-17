@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from .config import settings
 from .database import connect_to_mongo, close_mongo_connection
-from .routers import chat, strategies, backtests, websocket_chat
+from .routers import chat, strategies, backtests, websocket_chat, executions
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,6 +56,7 @@ app.include_router(chat.router)
 app.include_router(strategies.router)
 app.include_router(backtests.router)
 app.include_router(websocket_chat.router)
+app.include_router(executions.router)
 
 @app.get("/")
 async def root():
