@@ -9,7 +9,7 @@ export default function Header() {
   const pathname = usePathname();
 
   return (
-    <header className="border-b border-gray-800 bg-background">
+    <header className="sticky top-0 z-50 border-b border-gray-800 bg-background">
       <div className="container mx-auto px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-8">

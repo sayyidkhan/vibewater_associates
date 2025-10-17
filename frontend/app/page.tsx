@@ -89,6 +89,62 @@ export default function Dashboard() {
     router.push('/builder');
   };
 
+  // Mock function to simulate AI response when WebSocket is not connected
+  const handleMockDemo = () => {
+    const parsed: ParsedStrategy = {
+      strategy_schema: {
+        nodes: [
+          { 
+            id: "n1", 
+            type: "start", 
+            data: { label: "Start Strategy" },
+            position: { x: 0, y: 0 }
+          },
+          { 
+            id: "n2", 
+            type: "crypto_category", 
+            data: { label: "Bitcoin (BTC)", value: "BTC" },
+            position: { x: 0, y: 100 }
+          },
+          { 
+            id: "n3", 
+            type: "entry_condition", 
+            data: { label: "AI-Optimized Entry", config: { mode: "ai_optimized" } },
+            position: { x: 0, y: 200 }
+          },
+          { 
+            id: "n4", 
+            type: "exit_target", 
+            data: { label: "Profit Target 7%", value: 7 },
+            position: { x: 100, y: 300 }
+          },
+          { 
+            id: "n5", 
+            type: "stop_loss", 
+            data: { label: "Stop Loss -3%", value: -3 },
+            position: { x: -100, y: 300 }
+          }
+        ],
+        connections: [
+          { id: "e1", source: "n1", target: "n2" },
+          { id: "e2", source: "n2", target: "n3" },
+          { id: "e3", source: "n3", target: "n4" },
+          { id: "e4", source: "n3", target: "n5" }
+        ]
+      },
+      guardrails: [
+        { type: "no_short_selling", level: "info", message: "No short selling enabled" },
+        { type: "max_drawdown", level: "info", message: "Max 10% drawdown protection" },
+        { type: "no_leverage", level: "warning", message: "Position sizing: Use with caution for $1000 capital" }
+      ],
+      rationale: "I've created a momentum-based Bitcoin strategy for you. With $1000 capital, this strategy focuses on capturing short-term price movements with AI-optimized entry points, a 7% profit target, and -3% stop loss for risk management.",
+      estimated_return: 7.2,
+      required_capital: 1000
+    };
+
+    setParsedStrategy(parsed);
+  };
+
   return (
     <div className="container mx-auto px-6 py-8">
       <div className="max-w-7xl mx-auto">
@@ -122,6 +178,23 @@ export default function Dashboard() {
               </div>
               
               <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+                {/* WebSocket not connected - Show demo option */}
+                {!isConnected && messages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-full space-y-4">
+                    <div className="text-center max-w-md">
+                      <WifiOff className="w-12 h-12 mx-auto mb-4 text-yellow-500 opacity-50" />
+                      <h3 className="text-lg font-semibold mb-2">AI Server Offline</h3>
+                      <p className="text-sm text-gray-400 mb-6">
+                        The WebSocket server is not connected. You can try the demo mode to see how the AI strategy creation works.
+                      </p>
+                      <Button onClick={handleMockDemo} className="mx-auto">
+                        <Lightbulb className="w-4 h-4 mr-2" />
+                        Try Demo Mode
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                
                 {/* Initial greeting */}
                 {messages.length === 0 && isConnected && (
                   <div className="flex justify-start">
