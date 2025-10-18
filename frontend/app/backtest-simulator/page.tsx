@@ -515,16 +515,25 @@ export default function BacktestSimulator() {
                             }
                           }
                           
+                          // Debug: log the actual structure
+                          console.log('Parsed backtest results:', parsedResults);
+                          
+                          // Map the actual response structure to expected fields
+                          const metrics = parsedResults.backtest_metrics || {};
+                          const strategyDetails = parsedResults.strategy_details || {};
+                          const performanceAnalysis = parsedResults.performance_analysis || {};
+                          
                           // Prepare chart data - generate time series
-                          const initialCapital = parsedResults.strategy_configuration?.initial_capital || 1000;
-                          const finalValue = parsedResults.performance_summary?.final_value || initialCapital;
-                          const benchmarkReturn = parsedResults.performance_summary?.benchmark_return || 0;
+                          const initialCapital = strategyDetails.initial_capital || 1000;
+                          const totalReturn = metrics.total_return || 0;
+                          const finalValue = initialCapital * (1 + totalReturn / 100);
+                          const benchmarkReturn = Math.abs(metrics.vs_benchmark || 0) + totalReturn; // Calculate actual benchmark return
                           const benchmarkFinalValue = initialCapital * (1 + benchmarkReturn / 100);
-                          const totalTrades = parsedResults.execution_results?.trades || 7;
+                          const totalTrades = metrics.trades || 7;
                           
                           // Extract token/asset name from strategy configuration or data
-                          const tokenName = parsedResults.strategy_configuration?.asset || 
-                                          parsedResults.strategy_configuration?.token || 
+                          const tokenName = parsedResults.category || 
+                                          parsedResults.strategy_name ||
                                           strategyData?.asset ||
                                           strategyData?.token ||
                                           'Portfolio';
@@ -583,58 +592,141 @@ export default function BacktestSimulator() {
                           
                           return (
                             <>
+                              {/* Notes */}
+                              {performanceAnalysis.description && (
+                                <div>
+                                  <h3 className="text-lg font-semibold mb-2 text-primary">Notes</h3>
+                                  <div className="bg-card-hover border border-gray-700 rounded-lg p-3">
+                                    <p className="text-base text-gray-300 leading-relaxed">
+                                      {performanceAnalysis.description}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+
                               {/* Performance Summary */}
                               <div>
                                 <h3 className="text-lg font-semibold mb-2 text-primary">Performance Summary</h3>
                                 <div className="bg-card-hover border border-gray-700 rounded-lg overflow-hidden">
                                   <table className="w-full text-base">
                                     <tbody>
-                                      {parsedResults.performance_summary ? (
-                                        Object.entries(parsedResults.performance_summary).map(([key, value]: [string, any]) => {
-                                          const isPositive = typeof value === 'number' && value > 0;
-                                          const isNegative = typeof value === 'number' && value < 0;
-                                          
-                                          return (
-                                            <tr key={key} className="border-b border-gray-700 last:border-0">
-                                              <td className="px-3 py-2 font-medium text-gray-400 capitalize">
-                                                {key.replace(/_/g, ' ')}
-                                              </td>
-                                              <td className={`px-3 py-2 font-semibold ${
-                                                key.includes('return') || key === 'outperformance'
-                                                  ? isPositive ? 'text-green-400' : isNegative ? 'text-red-400' : 'text-gray-200'
-                                                  : key.includes('loss')
-                                                  ? 'text-red-400'
-                                                  : 'text-gray-200'
-                                              }`}>
-                                                {typeof value === 'number' 
-                                                  ? value.toLocaleString()
-                                                  : String(value)
-                                                }
+                                      {metrics && Object.keys(metrics).length > 0 ? (
+                                        <>
+                                          {/* Display metrics in a specific order for better readability */}
+                                          <tr className="border-b border-gray-700">
+                                            <td className="px-3 py-2 font-medium text-gray-400">Initial Capital</td>
+                                            <td className="px-3 py-2 font-semibold text-gray-200">
+                                              ${initialCapital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                          </tr>
+                                          <tr className="border-b border-gray-700">
+                                            <td className="px-3 py-2 font-medium text-gray-400">Final Portfolio Value</td>
+                                            <td className="px-3 py-2 font-semibold text-gray-200">
+                                              ${finalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                          </tr>
+                                          <tr className="border-b border-gray-700">
+                                            <td className="px-3 py-2 font-medium text-gray-400">Profit/Loss</td>
+                                            <td className={`px-3 py-2 font-semibold ${(finalValue - initialCapital) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                              ${(finalValue - initialCapital).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                          </tr>
+                                          <tr className="border-b border-gray-700">
+                                            <td className="px-3 py-2 font-medium text-gray-400">Total Return</td>
+                                            <td className={`px-3 py-2 font-semibold ${metrics.total_return >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                              {metrics.total_return.toFixed(2)}%
+                                            </td>
+                                          </tr>
+                                          {metrics.cagr !== undefined && (
+                                            <tr className="border-b border-gray-700">
+                                              <td className="px-3 py-2 font-medium text-gray-400">CAGR</td>
+                                              <td className={`px-3 py-2 font-semibold ${metrics.cagr >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                {metrics.cagr.toFixed(2)}%
                                               </td>
                                             </tr>
-                                          );
-                                        })
+                                          )}
+                                          {metrics.sharpe_ratio !== undefined && (
+                                            <tr className="border-b border-gray-700">
+                                              <td className="px-3 py-2 font-medium text-gray-400">Sharpe Ratio</td>
+                                              <td className="px-3 py-2 font-semibold text-gray-200">
+                                                {metrics.sharpe_ratio.toFixed(2)}
+                                              </td>
+                                            </tr>
+                                          )}
+                                          {metrics.max_drawdown !== undefined && (
+                                            <tr className="border-b border-gray-700">
+                                              <td className="px-3 py-2 font-medium text-gray-400">Max Drawdown</td>
+                                              <td className="px-3 py-2 font-semibold text-red-400">
+                                                {metrics.max_drawdown.toFixed(2)}%
+                                              </td>
+                                            </tr>
+                                          )}
+                                          {metrics.win_rate !== undefined && (
+                                            <tr className="border-b border-gray-700">
+                                              <td className="px-3 py-2 font-medium text-gray-400">Win Rate</td>
+                                              <td className="px-3 py-2 font-semibold text-gray-200">
+                                                {metrics.win_rate.toFixed(1)}%
+                                              </td>
+                                            </tr>
+                                          )}
+                                          {metrics.trades !== undefined && (
+                                            <tr className="border-b border-gray-700">
+                                              <td className="px-3 py-2 font-medium text-gray-400">Total Trades</td>
+                                              <td className="px-3 py-2 font-semibold text-gray-200">
+                                                {metrics.trades}
+                                              </td>
+                                            </tr>
+                                          )}
+                                          <tr className="border-b border-gray-700">
+                                            <td className="px-3 py-2 font-medium text-gray-400">Benchmark Return</td>
+                                            <td className={`px-3 py-2 font-semibold ${benchmarkReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                              {benchmarkReturn.toFixed(2)}%
+                                            </td>
+                                          </tr>
+                                          {metrics.vs_benchmark !== undefined && (
+                                            <tr>
+                                              <td className="px-3 py-2 font-medium text-gray-400">Strategy vs Benchmark</td>
+                                              <td className={`px-3 py-2 font-semibold ${metrics.vs_benchmark >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                                {metrics.vs_benchmark > 0 ? '+' : ''}{metrics.vs_benchmark.toFixed(2)}%
+                                              </td>
+                                            </tr>
+                                          )}
+                                        </>
                                       ) : (
                                         <>
                                           <tr className="border-b border-gray-700">
                                             <td className="px-3 py-2 font-medium text-gray-400">Final Portfolio Value</td>
-                                            <td className="px-3 py-2 font-semibold text-gray-200">{finalValue.toLocaleString()}</td>
+                                            <td className="px-3 py-2 font-semibold text-gray-200">${finalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                           </tr>
                                           <tr className="border-b border-gray-700">
                                             <td className="px-3 py-2 font-medium text-gray-400">Initial Portfolio Value</td>
-                                            <td className="px-3 py-2 font-semibold text-gray-200">{initialCapital.toLocaleString()}</td>
+                                            <td className="px-3 py-2 font-semibold text-gray-200">${initialCapital.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                           </tr>
                                           <tr className="border-b border-gray-700">
-                                            <td className="px-3 py-2 font-medium text-gray-400">Profit</td>
-                                            <td className="px-3 py-2 font-semibold text-green-400">{(finalValue - initialCapital).toLocaleString()}</td>
+                                            <td className="px-3 py-2 font-medium text-gray-400">Profit/Loss</td>
+                                            <td className={`px-3 py-2 font-semibold ${(finalValue - initialCapital) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                              ${(finalValue - initialCapital).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </td>
+                                          </tr>
+                                          <tr className="border-b border-gray-700">
+                                            <td className="px-3 py-2 font-medium text-gray-400">Total Return</td>
+                                            <td className={`px-3 py-2 font-semibold ${((finalValue - initialCapital) / initialCapital * 100) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                              {((finalValue - initialCapital) / initialCapital * 100).toFixed(2)}%
+                                            </td>
                                           </tr>
                                           <tr className="border-b border-gray-700">
                                             <td className="px-3 py-2 font-medium text-gray-400">Benchmark Return</td>
-                                            <td className="px-3 py-2 font-semibold text-green-400">{benchmarkReturn}%</td>
+                                            <td className={`px-3 py-2 font-semibold ${benchmarkReturn >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                              {benchmarkReturn.toFixed(2)}%
+                                            </td>
                                           </tr>
                                           <tr>
-                                            <td className="px-3 py-2 font-medium text-gray-400">Strategy Underperformance Vs Benchmark</td>
-                                            <td className="px-3 py-2 font-semibold text-gray-200">
+                                            <td className="px-3 py-2 font-medium text-gray-400">Strategy vs Benchmark</td>
+                                            <td className={`px-3 py-2 font-semibold ${
+                                              ((finalValue - initialCapital) / initialCapital * 100 - benchmarkReturn) >= 0 
+                                                ? 'text-green-400' 
+                                                : 'text-red-400'
+                                            }`}>
                                               {((finalValue - initialCapital) / initialCapital * 100 - benchmarkReturn).toFixed(2)}%
                                             </td>
                                           </tr>
@@ -763,18 +855,6 @@ export default function BacktestSimulator() {
                                   </div>
                                 </div>
                               </div>
-
-                              {/* Notes */}
-                              {parsedResults.notes && (
-                                <div>
-                                  <h3 className="text-lg font-semibold mb-2 text-primary">Notes</h3>
-                                  <div className="bg-card-hover border border-gray-700 rounded-lg p-3">
-                                    <p className="text-base text-gray-300 leading-relaxed">
-                                      {parsedResults.notes}
-                                    </p>
-                                  </div>
-                                </div>
-                              )}
                             </>
                           );
                         } catch (error) {
