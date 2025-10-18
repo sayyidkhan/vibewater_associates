@@ -4,8 +4,13 @@ Defines the agents and tasks for analyzing, generating, and executing strategy c
 """
 
 import os
+
+# Disable CrewAI telemetry to prevent timeout issues
+os.environ['OTEL_SDK_DISABLED'] = 'true'
+
 from crewai import Agent, Task, Crew, Process, LLM
 from typing import Dict, Any
+from ..config import settings
 from .execution_tools import (
     generate_vectorbt_code_tool,
     validate_python_code_tool,
@@ -16,12 +21,25 @@ from .execution_tools import (
 
 
 def get_llm():
-    """Get configured LLM for CrewAI agents"""
-    # Use CrewAI's native LLM class which properly integrates with LiteLLM
+    """Get configured LLM for CrewAI agents with proper timeout and retry settings"""
+    # Get Anthropic configuration
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    model = os.getenv("ANTHROPIC_MODEL", "claude-3-5-haiku-20241022")
+    
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY not found in environment variables")
+    
+    # Configure LiteLLM for better reliability
+    # Disable telemetry to avoid timeout issues
+    os.environ['LITELLM_TELEMETRY'] = 'False'
+    
+    # Use CrewAI's native LLM class with extended timeout and retry settings
     return LLM(
-        model="anthropic/claude-3-5-sonnet-20241022",
-        api_key=os.getenv("ANTHROPIC_API_KEY"),
-        temperature=0.1
+        model=f"anthropic/{model}",
+        api_key=api_key,
+        temperature=0.1,
+        timeout=120,  # 2 minute timeout for API calls
+        max_retries=3,  # Retry up to 3 times on failure
     )
 
 

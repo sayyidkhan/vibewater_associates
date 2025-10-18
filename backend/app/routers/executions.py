@@ -115,13 +115,32 @@ async def get_execution_results(execution_id: str):
     
     # Get backtest run
     from ..database import get_database
-    db = get_database()
+    pool = get_database()
     
-    backtest_run = await db.backtest_runs.find_one({"_id": execution.backtest_run_id})
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, strategy_id, params, metrics, equity_series, drawdown_series, monthly_returns, trades, created_at
+            FROM backtest_runs
+            WHERE id = $1
+            """,
+            execution.backtest_run_id
+        )
     
-    if not backtest_run:
+    if not row:
         raise HTTPException(status_code=404, detail="Backtest results not found")
     
-    backtest_run['id'] = str(backtest_run.pop('_id'))
+    # Convert row to dict
+    backtest_run = {
+        'id': str(row['id']),
+        'strategy_id': row['strategy_id'],
+        'params': row['params'],
+        'metrics': row['metrics'],
+        'equity_series': row['equity_series'],
+        'drawdown_series': row['drawdown_series'],
+        'monthly_returns': row['monthly_returns'],
+        'trades': row['trades'],
+        'created_at': row['created_at'].isoformat() if row['created_at'] else None
+    }
     
     return backtest_run

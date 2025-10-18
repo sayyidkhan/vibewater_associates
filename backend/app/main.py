@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from .config import settings
-from .database import connect_to_mongo, close_mongo_connection
+from .database import connect_to_postgres, close_postgres_connection
 from .routers import chat, strategies, backtests, websocket_chat, executions
 
 @asynccontextmanager
@@ -21,17 +21,17 @@ async def lifespan(app: FastAPI):
         print("🤖 LLM Service: AWS Bedrock")
     
     try:
-        await connect_to_mongo()
-        print("✓ Connected to MongoDB")
+        await connect_to_postgres()
+        print("✓ Connected to Supabase PostgreSQL")
     except Exception as e:
-        print(f"⚠️  MongoDB not available: {e}")
+        print(f"⚠️  Supabase not available: {e}")
         print("   Continuing without database...")
     
     print("="*80 + "\n")
     yield
     # Shutdown
     try:
-        await close_mongo_connection()
+        await close_postgres_connection()
     except:
         pass
 

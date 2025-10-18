@@ -7,7 +7,6 @@ import json
 import asyncio
 from datetime import datetime
 from typing import Dict, Any, Optional
-from bson import ObjectId
 from ..models import StrategyExecution, BacktestParams, BacktestRun, BacktestMetrics, EquityPoint, Trade
 from ..database import get_database
 from .strategy_agents import strategy_execution_crew
@@ -36,20 +35,30 @@ class StrategyExecutionService:
         Returns:
             StrategyExecution object with execution details
         """
-        db = get_database()
+        pool = get_database()
         
         # Create execution record
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO strategy_executions (strategy_id, user_id, status, created_at)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id
+                """,
+                strategy_id,
+                user_id,
+                "queued",
+                datetime.utcnow()
+            )
+            execution_id = str(row['id'])
+        
         execution = StrategyExecution(
+            id=execution_id,
             strategy_id=strategy_id,
             user_id=user_id,
             status="queued",
             created_at=datetime.utcnow()
         )
-        
-        execution_dict = execution.model_dump(exclude={"id"})
-        result = await db.strategy_executions.insert_one(execution_dict)
-        execution_id = str(result.inserted_id)
-        execution.id = execution_id
         
         # Execute asynchronously
         asyncio.create_task(
@@ -69,7 +78,7 @@ class StrategyExecutionService:
         Internal method that runs the complete execution workflow.
         This runs asynchronously so the API can return immediately.
         """
-        db = get_database()
+        pool = get_database()
         
         try:
             # Update status to analyzing
@@ -80,23 +89,22 @@ class StrategyExecutionService:
             )
             
             # Get strategy from database
-            # Convert string ID to ObjectId for MongoDB query
-            try:
-                strategy_object_id = ObjectId(strategy_id)
-            except:
-                strategy_object_id = strategy_id  # In case it's already an ObjectId
+            async with pool.acquire() as conn:
+                strategy = await conn.fetchrow(
+                    "SELECT * FROM strategies WHERE id = $1",
+                    strategy_id
+                )
             
-            strategy = await db.strategies.find_one({"_id": strategy_object_id})
             if not strategy:
                 raise ValueError(f"Strategy {strategy_id} not found")
             
             # Extract strategy schema
-            strategy_schema = strategy.get('schema_json', {})
+            strategy_schema = strategy['schema_json']
             strategy_json = json.dumps(strategy_schema)
             
             # Prepare parameters
             params_dict = {
-                'strategy_name': strategy.get('name', 'Generated Strategy'),
+                'strategy_name': strategy['name'] if strategy['name'] else 'Generated Strategy',
                 'start_date': params.start_date,
                 'end_date': params.end_date,
                 'initial_capital': params.initial_capital,
@@ -176,15 +184,22 @@ class StrategyExecutionService:
         **kwargs
     ):
         """Update execution status in database"""
-        db = get_database()
+        pool = get_database()
         
-        update_data = {"status": status}
-        update_data.update(kwargs)
+        # Build update query dynamically
+        update_fields = ["status = $2"]
+        params = [execution_id, status]
+        param_count = 3
         
-        await db.strategy_executions.update_one(
-            {"_id": execution_id},
-            {"$set": update_data}
-        )
+        for key, value in kwargs.items():
+            update_fields.append(f"{key} = ${param_count}")
+            params.append(value)
+            param_count += 1
+        
+        query = f"UPDATE strategy_executions SET {', '.join(update_fields)} WHERE id = $1"
+        
+        async with pool.acquire() as conn:
+            await conn.execute(query, *params)
     
     async def _create_backtest_run(
         self,
@@ -194,7 +209,7 @@ class StrategyExecutionService:
         logs: str
     ) -> BacktestRun:
         """Create a BacktestRun from execution results"""
-        db = get_database()
+        pool = get_database()
         
         # Create metrics
         metrics = BacktestMetrics(
@@ -211,47 +226,115 @@ class StrategyExecutionService:
             vs_benchmark=metrics_data.get('vs_benchmark', 0)
         )
         
-        # Create backtest run
+        # Store in database
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO backtest_runs (strategy_id, params, metrics, equity_series, drawdown_series, monthly_returns, trades, created_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING id
+                """,
+                strategy_id,
+                json.dumps(params.model_dump()),
+                json.dumps(metrics.model_dump()),
+                json.dumps([]),  # equity_series
+                json.dumps([]),  # drawdown_series
+                json.dumps([]),  # monthly_returns
+                json.dumps([]),  # trades
+                datetime.utcnow()
+            )
+            backtest_run_id = str(row['id'])
+        
+        # Create backtest run object
         backtest_run = BacktestRun(
-            id=f"exec-{datetime.utcnow().timestamp()}",
+            id=backtest_run_id,
             strategy_id=strategy_id,
             params=params,
             metrics=metrics,
-            equity_series=[],  # Would need to extract from execution
+            equity_series=[],
             drawdown_series=[],
             monthly_returns=[],
             trades=[],
             created_at=datetime.utcnow()
         )
         
-        # Store in database
-        backtest_dict = backtest_run.model_dump(exclude={"id"})
-        result = await db.backtest_runs.insert_one(backtest_dict)
-        backtest_run.id = str(result.inserted_id)
-        
         return backtest_run
     
     async def get_execution(self, execution_id: str) -> Optional[StrategyExecution]:
         """Get execution by ID"""
-        db = get_database()
+        pool = get_database()
         
-        execution_dict = await db.strategy_executions.find_one({"_id": execution_id})
-        if not execution_dict:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM strategy_executions WHERE id = $1",
+                execution_id
+            )
+        
+        if not row:
             return None
         
-        execution_dict['id'] = str(execution_dict.pop('_id'))
-        return StrategyExecution(**execution_dict)
+        # Parse execution_logs - it comes from JSONB as a list or string
+        execution_logs = row['execution_logs']
+        if isinstance(execution_logs, str):
+            import json
+            try:
+                execution_logs = json.loads(execution_logs) if execution_logs and execution_logs.strip() else []
+            except json.JSONDecodeError:
+                execution_logs = []
+        elif execution_logs is None:
+            execution_logs = []
+        elif not isinstance(execution_logs, list):
+            execution_logs = []
+        
+        return StrategyExecution(
+            id=str(row['id']),
+            strategy_id=row['strategy_id'],
+            user_id=row['user_id'],
+            status=row['status'],
+            generated_code=row['generated_code'],
+            execution_logs=execution_logs,
+            backtest_run_id=row['backtest_run_id'],
+            error_message=row['error_message'],
+            agent_insights=row['agent_insights'],
+            created_at=row['created_at'],
+            started_at=row['started_at'],
+            completed_at=row['completed_at']
+        )
     
     async def get_executions_for_strategy(self, strategy_id: str) -> list[StrategyExecution]:
         """Get all executions for a strategy"""
-        db = get_database()
+        pool = get_database()
         
-        cursor = db.strategy_executions.find({"strategy_id": strategy_id})
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM strategy_executions WHERE strategy_id = $1 ORDER BY created_at DESC",
+                strategy_id
+            )
+        
         executions = []
-        
-        async for doc in cursor:
-            doc['id'] = str(doc.pop('_id'))
-            executions.append(StrategyExecution(**doc))
+        for row in rows:
+            # Parse execution_logs - it comes from JSONB as a list or string
+            execution_logs = row['execution_logs']
+            if isinstance(execution_logs, str):
+                import json
+                execution_logs = json.loads(execution_logs) if execution_logs else []
+            elif execution_logs is None:
+                execution_logs = []
+            
+            executions.append(StrategyExecution(
+                id=str(row['id']),
+                strategy_id=row['strategy_id'],
+                user_id=row['user_id'],
+                status=row['status'],
+                generated_code=row['generated_code'],
+                execution_logs=execution_logs,
+                backtest_run_id=row['backtest_run_id'],
+                error_message=row['error_message'],
+                agent_insights=row['agent_insights'],
+                created_at=row['created_at'],
+                started_at=row['started_at'],
+                completed_at=row['completed_at']
+            ))
         
         return executions
     

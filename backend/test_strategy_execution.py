@@ -1,82 +1,86 @@
 """
 Test script for strategy execution with CrewAI agents.
-This creates a sample strategy and tests the execution workflow.
+This creates a sample strategy in Supabase PostgreSQL and tests the execution workflow.
 """
 
 import asyncio
 import json
 from datetime import datetime
-from motor.motor_asyncio import AsyncIOMotorClient
 from app.config import settings
 from app.services.strategy_execution_service import strategy_execution_service
+from app.database import get_database
 
 
 async def create_test_strategy():
-    """Create a test strategy in MongoDB"""
-    client = AsyncIOMotorClient(settings.mongodb_url)
-    db = client[settings.database_name]
+    """Create a test strategy in Supabase PostgreSQL"""
+    pool = get_database()
     
     # Sample strategy: Simple MA Crossover
-    strategy = {
-        "user_id": "test_user",
-        "name": "MA Crossover Test Strategy",
-        "description": "Simple moving average crossover strategy for testing",
-        "status": "Backtest",
-        "schema_json": {
-            "nodes": [
-                {
-                    "id": "category_1",
-                    "type": "crypto_category",
-                    "data": {"label": "Bitcoin"},
-                    "position": {"x": 100, "y": 100},
-                    "meta": {"category": "Bitcoin"}
-                },
-                {
-                    "id": "entry_1",
-                    "type": "entry_condition",
-                    "data": {"label": "Entry"},
-                    "position": {"x": 300, "y": 100},
-                    "meta": {
-                        "mode": "auto",
-                        "rules": [
-                            "Enter when 10-day moving average crosses above 30-day moving average",
-                            "Price must be above 20-day moving average"
-                        ]
-                    }
-                },
-                {
-                    "id": "tp_1",
-                    "type": "take_profit",
-                    "data": {"label": "Take Profit"},
-                    "position": {"x": 500, "y": 100},
-                    "meta": {"target_pct": 7.0}
-                },
-                {
-                    "id": "sl_1",
-                    "type": "stop_loss",
-                    "data": {"label": "Stop Loss"},
-                    "position": {"x": 500, "y": 200},
-                    "meta": {"stop_pct": 5.0}
+    schema_json = {
+        "nodes": [
+            {
+                "id": "category_1",
+                "type": "crypto_category",
+                "data": {"label": "Bitcoin"},
+                "position": {"x": 100, "y": 100},
+                "meta": {"category": "Bitcoin"}
+            },
+            {
+                "id": "entry_1",
+                "type": "entry_condition",
+                "data": {"label": "Entry"},
+                "position": {"x": 300, "y": 100},
+                "meta": {
+                    "mode": "auto",
+                    "rules": [
+                        "Enter when 10-day moving average crosses above 30-day moving average",
+                        "Price must be above 20-day moving average"
+                    ]
                 }
-            ],
-            "connections": [
-                {"id": "e1", "source": "category_1", "target": "entry_1"},
-                {"id": "e2", "source": "entry_1", "target": "tp_1"},
-                {"id": "e3", "source": "entry_1", "target": "sl_1"}
-            ]
-        },
-        "guardrails": [],
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+            },
+            {
+                "id": "tp_1",
+                "type": "take_profit",
+                "data": {"label": "Take Profit"},
+                "position": {"x": 500, "y": 100},
+                "meta": {"target_pct": 7.0}
+            },
+            {
+                "id": "sl_1",
+                "type": "stop_loss",
+                "data": {"label": "Stop Loss"},
+                "position": {"x": 500, "y": 200},
+                "meta": {"stop_pct": 5.0}
+            }
+        ],
+        "connections": [
+            {"id": "e1", "source": "category_1", "target": "entry_1"},
+            {"id": "e2", "source": "entry_1", "target": "tp_1"},
+            {"id": "e3", "source": "entry_1", "target": "sl_1"}
+        ]
     }
     
-    # Insert strategy
-    result = await db.strategies.insert_one(strategy)
-    strategy_id = str(result.inserted_id)
+    # Insert strategy into PostgreSQL
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO strategies (user_id, name, description, status, schema_json, guardrails, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING id
+            """,
+            "test_user",
+            "MA Crossover Test Strategy",
+            "Simple moving average crossover strategy for testing",
+            "Backtest",
+            json.dumps(schema_json),
+            json.dumps([]),
+            datetime.utcnow(),
+            datetime.utcnow()
+        )
+        strategy_id = str(row['id'])
     
     print(f"✅ Created test strategy with ID: {strategy_id}")
     
-    client.close()  # Not async in motor
     return strategy_id
 
 
@@ -146,10 +150,13 @@ async def test_strategy_execution(strategy_id: str):
                 
                 # Show results
                 if execution.backtest_run_id:
-                    from app.database import get_database
-                    db = get_database()
+                    pool = get_database()
                     
-                    backtest_run = await db.backtest_runs.find_one({"_id": execution.backtest_run_id})
+                    async with pool.acquire() as conn:
+                        backtest_run = await conn.fetchrow(
+                            "SELECT * FROM backtest_runs WHERE id = $1",
+                            execution.backtest_run_id
+                        )
                     
                     if backtest_run and backtest_run.get('metrics'):
                         metrics = backtest_run['metrics']
@@ -214,25 +221,25 @@ async def test_strategy_execution(strategy_id: str):
 
 async def main():
     """Main test function"""
-    from app.database import connect_to_mongo, close_mongo_connection
+    from app.database import connect_to_postgres, close_postgres_connection
     
     print("\n" + "="*80)
     print("🧪 CREWAI STRATEGY EXECUTION TEST")
     print("="*80 + "\n")
     
-    # Connect to MongoDB
-    print("Connecting to MongoDB...")
+    # Connect to Supabase PostgreSQL
+    print("Connecting to Supabase PostgreSQL...")
     try:
-        await connect_to_mongo()
-        print("✅ Connected to MongoDB\n")
+        await connect_to_postgres()
+        print("✅ Connected to Supabase PostgreSQL\n")
     except Exception as e:
-        print(f"❌ Failed to connect to MongoDB: {e}")
-        print("Make sure MongoDB is running and MONGODB_URL is set in .env\n")
+        print(f"❌ Failed to connect to Supabase: {e}")
+        print("Make sure DATABASE_URL is set in .env\n")
         return
     
     try:
         # Step 1: Create test strategy
-        print("Step 1: Creating test strategy in MongoDB...")
+        print("Step 1: Creating test strategy in Supabase...")
         strategy_id = await create_test_strategy()
         
         # Step 2: Execute strategy
@@ -244,8 +251,8 @@ async def main():
         print("="*80 + "\n")
     
     finally:
-        # Close MongoDB connection
-        await close_mongo_connection()
+        # Close PostgreSQL connection
+        await close_postgres_connection()
 
 
 if __name__ == "__main__":

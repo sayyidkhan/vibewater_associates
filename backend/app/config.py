@@ -2,8 +2,7 @@ from pydantic_settings import BaseSettings
 from typing import List
 
 class Settings(BaseSettings):
-    mongodb_url: str = "mongodb://localhost:27017"
-    database_name: str = "vibewater_db"
+    database_url: str = ""  # Supabase PostgreSQL connection string
     openai_api_key: str = ""
     coingecko_api_key: str = ""
     cors_origins: str = "http://localhost:3000"
