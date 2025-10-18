@@ -133,16 +133,90 @@ class StrategyExecutionService:
                 result = json.loads(result)
             
             # Check if execution was successful
-            if result.get('status') == 'success':
+            execution_status = result.get('execution_status', result.get('status', ''))
+            
+            # Consider both 'success' and 'completed' as successful executions
+            if execution_status.lower() in ['success', 'completed']:
+                # Handle different result formats
+                # Format 1: metrics are nested in 'metrics' key
+                # Format 2: metrics are at top level (total_return, cagr, etc as direct keys)
+                # Format 3: result is a markdown string with embedded JSON
+                
                 metrics_data = result.get('metrics', {})
-                logs = result.get('logs', '')
+                
+                # If metrics is empty, check if metrics are at top level
+                if not metrics_data and 'total_return' in result:
+                    metrics_data = result
+                
+                # If still no metrics, try to extract from 'result' markdown string
+                if not metrics_data or (isinstance(metrics_data, dict) and not metrics_data):
+                    result_str = result.get('result', '')
+                    if result_str and '```json' in result_str:
+                        # Extract JSON from markdown
+                        try:
+                            import re
+                            json_match = re.search(r'```json\s*\n(.*?)\n```', result_str, re.DOTALL)
+                            if json_match:
+                                metrics_data = json.loads(json_match.group(1))
+                        except Exception as e:
+                            print(f"Warning: Could not extract metrics from markdown: {e}")
+                
+                # Convert metrics to the expected format
+                # Handle various key formats (camelCase, Title Case, snake_case)
+                # Use a helper function that properly handles None vs 0
+                def get_metric(data, *keys, default=0):
+                    """Get metric value, distinguishing between None and 0"""
+                    for key in keys:
+                        value = data.get(key)
+                        if value is not None:
+                            return value
+                    return default
+                
+                formatted_metrics = {
+                    'total_return': get_metric(
+                        metrics_data,
+                        'total_return', 'Total Return %', 'Total Return'
+                    ),
+                    'cagr': get_metric(
+                        metrics_data,
+                        'cagr', 'Annual Return %', 'CAGR'
+                    ),
+                    'sharpe_ratio': get_metric(
+                        metrics_data,
+                        'sharpe_ratio', 'Sharpe Ratio'
+                    ),
+                    'max_drawdown': get_metric(
+                        metrics_data,
+                        'max_drawdown', 'Max Drawdown %', 'Maximum Drawdown'
+                    ),
+                    'win_rate': get_metric(
+                        metrics_data,
+                        'win_rate', 'Win Rate %', 'Win Rate'
+                    ),
+                    'trades': get_metric(
+                        metrics_data,
+                        'trades', 'Total Trades', 'total_trades'
+                    ),
+                    'vs_benchmark': get_metric(
+                        metrics_data,
+                        'vs_benchmark', 'vs Benchmark'
+                    )
+                }
+                
+                # Create execution log entry
+                log_entry = f"Execution completed successfully. Strategy: {result.get('strategy_name', 'Unknown')}"
+                if result.get('strategy_description'):
+                    log_entry += f"\nDescription: {result['strategy_description']}"
+                if result.get('summary'):
+                    log_entry += f"\nSummary: {result['summary']}"
+                log_entry += f"\nMetrics: {json.dumps(formatted_metrics, indent=2)}"
                 
                 # Create BacktestRun
                 backtest_run = await self._create_backtest_run(
                     strategy_id,
                     params,
-                    metrics_data,
-                    logs
+                    formatted_metrics,
+                    log_entry
                 )
                 
                 # Update execution as completed
@@ -151,18 +225,23 @@ class StrategyExecutionService:
                     "completed",
                     backtest_run_id=backtest_run.id,
                     completed_at=datetime.utcnow(),
-                    execution_logs=[logs]
+                    execution_logs=[log_entry]
                 )
                 
             else:
                 # Execution failed
-                error_msg = result.get('error', 'Unknown error')
+                error_msg = result.get('error', result.get('error_message', 'Unknown error'))
+                logs = result.get('logs', result.get('result', ''))
+                log_entry = f"Execution failed: {error_msg}"
+                if logs:
+                    log_entry += f"\nLogs: {logs}"
+                
                 await self._update_execution_status(
                     execution_id,
                     "failed",
                     error_message=error_msg,
                     completed_at=datetime.utcnow(),
-                    execution_logs=[result.get('logs', '')]
+                    execution_logs=[log_entry]
                 )
         
         except Exception as e:
@@ -191,9 +270,21 @@ class StrategyExecutionService:
         params = [execution_id, status]
         param_count = 3
         
+        # JSONB fields that need to be serialized
+        jsonb_fields = {'execution_logs', 'agent_insights'}
+        
         for key, value in kwargs.items():
             update_fields.append(f"{key} = ${param_count}")
-            params.append(value)
+            
+            # Serialize JSONB fields to JSON strings
+            if key in jsonb_fields and value is not None:
+                if isinstance(value, (list, dict)):
+                    params.append(json.dumps(value))
+                else:
+                    params.append(value)
+            else:
+                params.append(value)
+            
             param_count += 1
         
         query = f"UPDATE strategy_executions SET {', '.join(update_fields)} WHERE id = $1"

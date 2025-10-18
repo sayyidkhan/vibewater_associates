@@ -72,6 +72,8 @@ export interface BacktestParams {
   slippage: number;
   position_sizing: string;
   exposure: number;
+  token_id?: string;  // CoinGecko token ID (e.g., "bitcoin", "ethereum")
+  period?: string;    // Period shorthand (e.g., "1M", "3M", "6M", "1Y")
 }
 
 export interface BacktestMetrics {

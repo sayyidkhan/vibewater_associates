@@ -142,29 +142,36 @@ from datetime import datetime
 import json"""
     
     def _generate_data_fetching(self, category: str, params: Dict[str, Any]) -> str:
-        """Generate data fetching code"""
-        symbol_map = {
-            "Bitcoin": "BTC-USD",
-            "Ethereum": "ETH-USD",
-            "DeFi": "BTC-USD",
-            "Layer1": "ETH-USD"
-        }
+        """Generate data fetching code using CoinGecko API"""
+        from .coingecko_service import TOP_20_TOKENS, get_days_from_period, calculate_days_from_dates
         
-        symbol = symbol_map.get(category, "BTC-USD")
-        start_date = params.get("start_date", "2024-01-01")
-        end_date = params.get("end_date", "2024-12-31")
+        # Determine token_id
+        if params.get("token_id"):
+            token_id = params["token_id"]
+        elif category in TOP_20_TOKENS:
+            token_id = TOP_20_TOKENS[category]
+        else:
+            token_id = "bitcoin"  # Default fallback
         
-        return f"""# Fetch price data
-print(f"Fetching {{CATEGORY}} data...")
+        # Determine number of days
+        if params.get("period"):
+            days = get_days_from_period(params["period"])
+            if days is None:
+                days = 90  # Default to 90 days
+        else:
+            start_date = params.get("start_date", "2024-01-01")
+            end_date = params.get("end_date", "2024-12-31")
+            days = calculate_days_from_dates(start_date, end_date)
+        
+        return f"""# Fetch price data from CoinGecko
+from app.services.coingecko_service import fetch_crypto_data
+
+print(f"Fetching {{CATEGORY}} data from CoinGecko...")
 try:
-    price_data = vbt.YFData.download(
-        '{symbol}',
-        start='{start_date}',
-        end='{end_date}',
-        missing_index='drop'
-    )
-    price = price_data.get('Close')
-    print(f"Downloaded {{len(price)}} data points")
+    price_data = fetch_crypto_data('{token_id}', {days})
+    price = price_data['Close']
+    print(f"Downloaded {{len(price)}} data points for {token_id}")
+    print(f"Date range: {{price.index[0]}} to {{price.index[-1]}}")
 except Exception as e:
     print(f"Error fetching data: {{e}}")
     raise"""

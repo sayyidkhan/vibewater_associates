@@ -160,6 +160,11 @@ async def test_strategy_execution(strategy_id: str):
                     
                     if backtest_run and backtest_run.get('metrics'):
                         metrics = backtest_run['metrics']
+                        
+                        # Parse metrics if it's a JSON string
+                        if isinstance(metrics, str):
+                            metrics = json.loads(metrics)
+                        
                         print("📊 Backtest Results:")
                         print(f"   Total Return: {metrics.get('total_return', 0):.2f}%")
                         print(f"   CAGR: {metrics.get('cagr', 0):.2f}%")

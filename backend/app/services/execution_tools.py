@@ -259,11 +259,71 @@ def store_strategy_memory_tool(content: str, user_id: str, metadata: str) -> str
         })
 
 
+@tool
+def get_available_tokens_tool() -> str:
+    """Get Available Tokens
+    
+    Returns list of available cryptocurrency tokens for backtesting.
+    
+    Returns:
+        JSON string with token names and their CoinGecko IDs
+    """
+    try:
+        from .coingecko_service import TOP_20_TOKENS
+        
+        return json.dumps({
+            'tokens': TOP_20_TOKENS,
+            'count': len(TOP_20_TOKENS),
+            'description': 'Top 20 cryptocurrencies available for backtesting'
+        })
+    except Exception as e:
+        return json.dumps({
+            'error': str(e),
+            'tokens': {}
+        })
+
+
+@tool
+def get_period_mappings_tool() -> str:
+    """Get Period Mappings
+    
+    Returns mapping of period shortcuts to number of days.
+    
+    Returns:
+        JSON string with period mappings
+    """
+    try:
+        from .coingecko_service import PERIOD_TO_DAYS
+        
+        # Convert to a more readable format
+        period_info = {}
+        for period, days in PERIOD_TO_DAYS.items():
+            if days == "max":
+                period_info[period] = "Maximum available data (5 years)"
+            elif days is None:
+                period_info[period] = "Year to date (calculated dynamically)"
+            else:
+                period_info[period] = f"{days} days"
+        
+        return json.dumps({
+            'periods': PERIOD_TO_DAYS,
+            'descriptions': period_info,
+            'example': 'Use period="3M" for 90 days of data'
+        })
+    except Exception as e:
+        return json.dumps({
+            'error': str(e),
+            'periods': {}
+        })
+
+
 # Export all tools
 __all__ = [
     'generate_vectorbt_code_tool',
     'validate_python_code_tool',
     'execute_python_code_tool',
     'search_strategy_memory_tool',
-    'store_strategy_memory_tool'
+    'store_strategy_memory_tool',
+    'get_available_tokens_tool',
+    'get_period_mappings_tool'
 ]

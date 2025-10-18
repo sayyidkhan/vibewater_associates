@@ -54,6 +54,8 @@ class BacktestParams(BaseModel):
     slippage: float
     position_sizing: str
     exposure: float
+    token_id: Optional[str] = None  # CoinGecko token ID (e.g., "bitcoin", "ethereum")
+    period: Optional[str] = None  # Period shorthand (e.g., "1M", "3M", "6M", "1Y")
 
 class BacktestMetrics(BaseModel):
     total_amount_invested: float

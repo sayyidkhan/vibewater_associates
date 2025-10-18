@@ -16,7 +16,9 @@ from .execution_tools import (
     validate_python_code_tool,
     execute_python_code_tool,
     search_strategy_memory_tool,
-    store_strategy_memory_tool
+    store_strategy_memory_tool,
+    get_available_tokens_tool,
+    get_period_mappings_tool
 )
 
 
@@ -54,10 +56,15 @@ def create_strategy_analyzer_agent() -> Agent:
         backstory="""You are an expert quantitative analyst who understands
         trading strategies deeply. You can break down complex strategy schemas
         into clear, executable components including entry/exit conditions,
-        indicators, and risk management parameters.""",
+        indicators, and risk management parameters. You have access to information
+        about available tokens and time periods for backtesting.""",
         verbose=True,
         allow_delegation=False,
-        tools=[search_strategy_memory_tool],
+        tools=[
+            search_strategy_memory_tool,
+            get_available_tokens_tool,
+            get_period_mappings_tool
+        ],
         llm=get_llm()
     )
 
@@ -73,13 +80,15 @@ def create_code_generator_agent() -> Agent:
         backstory="""You are a Python expert specializing in the VectorBT library
         for backtesting trading strategies. You write well-documented, efficient code
         that follows best practices. You understand technical indicators, portfolio
-        management, and risk controls.""",
+        management, and risk controls. You use CoinGecko API for fetching crypto data.""",
         verbose=True,
         allow_delegation=False,
         tools=[
             generate_vectorbt_code_tool,
             validate_python_code_tool,
-            search_strategy_memory_tool
+            search_strategy_memory_tool,
+            get_available_tokens_tool,
+            get_period_mappings_tool
         ],
         llm=get_llm()
     )
