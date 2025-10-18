@@ -1,7 +1,7 @@
 import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import List, Dict, Any
-from ..services.bedrock_service import bedrock_service
+from ..services.llm_service import llm_service
 
 router = APIRouter()
 
@@ -91,13 +91,13 @@ async def websocket_chat_endpoint(websocket: WebSocket):
                     "message_id": f"msg_{len(messages)}"
                 }, websocket)
                 
-                # Get response from Bedrock
+                # Get response from LLM service (Anthropic or Bedrock)
                 full_response = ""
-                async for chunk in bedrock_service.chat_stream(messages):
+                async for chunk in llm_service.chat_stream(messages):
                     full_response += chunk
                 
                 # Parse the complete response first
-                parsed = bedrock_service.parse_response(full_response)
+                parsed = llm_service.parse_response(full_response)
                 
                 # Stream only the user_message character by character
                 import asyncio
