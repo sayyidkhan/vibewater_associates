@@ -120,3 +120,29 @@ class StrategyBuilderResponse(BaseModel):
 class BacktestRequest(BaseModel):
     strategy_id: str
     params: BacktestParams
+
+class StrategyExecution(BaseModel):
+    """Tracks the execution of a strategy through the agent workflow"""
+    id: Optional[str] = None
+    strategy_id: str
+    user_id: str
+    status: Literal[
+        "queued",
+        "analyzing",
+        "generating_code",
+        "executing",
+        "completed",
+        "failed"
+    ] = "queued"
+    generated_code: Optional[str] = None
+    execution_logs: List[str] = []
+    backtest_run_id: Optional[str] = None
+    error_message: Optional[str] = None
+    agent_insights: Optional[Dict[str, Any]] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+class ExecuteStrategyRequest(BaseModel):
+    """Request to execute a strategy"""
+    params: BacktestParams
