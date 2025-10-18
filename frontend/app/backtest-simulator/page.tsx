@@ -75,7 +75,7 @@ export default function BacktestSimulator() {
     },
     {
       id: 3,
-      name: "Risk Validator",
+      name: "Code Validator",
       icon: Shield,
       description: "Validating risk parameters and safety guardrails",
       color: "#f59e0b",

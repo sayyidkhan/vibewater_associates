@@ -403,7 +403,7 @@ Return the execution results with metrics.
                             self.callback({
                                 "type": "agent_start",
                                 "agent_id": 3,
-                                "agent_name": "Risk Validator",
+                                "agent_name": "Code Validator",
                                 "description": "Validating risk parameters"
                             })
                         self.current_agent_id = 3
