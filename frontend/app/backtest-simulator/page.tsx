@@ -6,6 +6,7 @@ import { Brain, LineChart, Shield, CheckCircle, TrendingUp, Home, ChevronRight, 
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Header from "@/components/Header";
+import { useWebSocketBacktest } from "@/hooks/useWebSocketBacktest";
 
 interface Agent {
   id: number;
@@ -20,9 +21,6 @@ interface Agent {
 
 export default function BacktestSimulator() {
   const router = useRouter();
-  const [isRunning, setIsRunning] = useState(false);
-  const [currentAgentIndex, setCurrentAgentIndex] = useState(-1);
-  const [currentStep, setCurrentStep] = useState(0);
   const [strategyData, setStrategyData] = useState<any>(null);
   
   // Refs for agent output sections
@@ -42,7 +40,7 @@ export default function BacktestSimulator() {
     }
   }, []);
   
-  const [agents, setAgents] = useState<Agent[]>([
+  const initialAgents: Agent[] = [
     {
       id: 1,
       name: "Strategy Analyzer",
@@ -103,60 +101,55 @@ export default function BacktestSimulator() {
         "Backtest execution complete ✓"
       ]
     }
-  ]);
+  ];
 
-  useEffect(() => {
-    if (!isRunning) return;
-    
-    if (currentAgentIndex < agents.length) {
-      const currentAgent = agents[currentAgentIndex];
-      const totalSteps = currentAgent.steps.length;
-      const stepDuration = 750; // 750ms per step
-      
-      if (currentStep < totalSteps) {
-        // Progress through steps
-        const timer = setTimeout(() => {
-          setCurrentStep(prev => prev + 1);
-        }, stepDuration);
-        
-        return () => clearTimeout(timer);
-      } else {
-        // Complete current agent and move to next
-        const timer = setTimeout(() => {
-          setAgents(prev => prev.map((agent, idx) => {
-            if (idx === currentAgentIndex) {
-              return { ...agent, status: "completed" };
-            } else if (idx === currentAgentIndex + 1) {
-              return { ...agent, status: "active" };
-            }
-            return agent;
-          }));
-          setCurrentAgentIndex(prev => prev + 1);
-          setCurrentStep(0); // Reset step counter for next agent
-        }, 300);
-        
-        return () => clearTimeout(timer);
-      }
-    } else {
-      setIsRunning(false);
-    }
-  }, [isRunning, currentAgentIndex, currentStep, agents.length, agents]);
+  // Initialize WebSocket backtest hook
+  const {
+    agents,
+    isConnected,
+    isRunning,
+    error: executionError,
+    results,
+    currentAgentIndex,
+    startExecution,
+    resetExecution
+  } = useWebSocketBacktest('ws://localhost:8000/ws/backtest', initialAgents);
 
   const startSimulation = () => {
-    setIsRunning(true);
-    setCurrentAgentIndex(0);
-    setCurrentStep(0);
-    setAgents(prev => prev.map((agent, idx) => ({
-      ...agent,
-      status: idx === 0 ? "active" : "disabled"
-    })));
+    if (!strategyData) {
+      console.error('No strategy data available');
+      return;
+    }
+
+    // Extract strategy ID from sessionStorage
+    const strategyId = strategyData.strategyId || strategyData.id || 'test-strategy-id';
+    
+    // Prepare execution parameters
+    const executionParams: any = {
+      strategy_id: strategyId,
+      params: {
+        start_date: strategyData.startDate || '2024-01-01',
+        end_date: strategyData.endDate || '2024-12-31',
+        initial_capital: strategyData.estimatedCapital || 10000,
+        fees: 0.001,
+        slippage: 0.001
+      }
+    };
+
+    // Include strategy schema if available (for cases where DB doesn't have it)
+    if (strategyData.flowchart || strategyData.strategy_json) {
+      executionParams.strategy_schema = strategyData.flowchart || strategyData.strategy_json;
+      executionParams.strategy_name = strategyData.name || strategyData.strategyName || 'Generated Strategy';
+      console.log('Including strategy schema in execution request');
+    }
+
+    console.log('Starting execution with params:', executionParams);
+    console.log('Strategy data:', strategyData);
+    startExecution(executionParams);
   };
 
   const resetSimulation = () => {
-    setIsRunning(false);
-    setCurrentAgentIndex(-1);
-    setCurrentStep(0);
-    setAgents(prev => prev.map(agent => ({ ...agent, status: "disabled" })));
+    resetExecution();
   };
 
   const scrollToOutput = (agentId: number) => {
@@ -206,11 +199,19 @@ export default function BacktestSimulator() {
           <div className="overflow-hidden">
             <Card className="h-full flex flex-col">
               <div className="flex-shrink-0 flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold">Agent Workflow</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-lg font-semibold">Agent Workflow</h2>
+                  {!isConnected && (
+                    <span className="text-xs text-yellow-500">⚠️ Connecting...</span>
+                  )}
+                  {isConnected && !isRunning && (
+                    <span className="text-xs text-green-500">✓ Connected</span>
+                  )}
+                </div>
                 <div className="flex gap-3">
                   <Button
                     onClick={startSimulation}
-                    disabled={isRunning}
+                    disabled={isRunning || !isConnected}
                     size="sm"
                   >
                     {isRunning ? "Running..." : "Start Simulation"}
@@ -219,11 +220,19 @@ export default function BacktestSimulator() {
                     onClick={resetSimulation}
                     variant="outline"
                     size="sm"
+                    disabled={isRunning}
                   >
                     Reset
                   </Button>
                 </div>
               </div>
+
+              {/* Error Display */}
+              {executionError && (
+                <div className="mb-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  <p className="text-sm text-red-400">❌ {executionError}</p>
+                </div>
+              )}
 
               <div className="flex-1 flex flex-col justify-between min-h-0">
                 {/* Strategy Parameters */}
@@ -325,11 +334,11 @@ export default function BacktestSimulator() {
                         </div>
 
                         {/* Processing Steps */}
-                        {isActive && index === currentAgentIndex && (
+                        {isActive && (
                           <div className="mt-2 pl-2 space-y-1">
-                            {agent.steps.slice(0, currentStep + 1).map((step, stepIndex) => {
-                              const isLastStep = stepIndex === currentStep;
+                            {agent.steps.filter(step => step && step.trim()).map((step, stepIndex) => {
                               const isCompleteStep = step.includes('✓');
+                              const isLastStep = stepIndex === agent.steps.filter(s => s && s.trim()).length - 1;
                               
                               return (
                                 <div 
