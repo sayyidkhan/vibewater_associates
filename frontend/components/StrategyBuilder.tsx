@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import ReactFlow, {
   Node,
   Edge,
@@ -56,6 +57,7 @@ const getNodeConfig = (nodeType: string) => {
 };
 
 export default function StrategyBuilder({ schema, onSchemaChange, initialData, onStateChange }: StrategyBuilderProps) {
+  const router = useRouter();
   const initialNodes: Node[] = schema?.nodes.map((node) => ({
     id: node.id,
     type: "default",
@@ -323,6 +325,25 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData, o
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  const handleRunBacktest = () => {
+    // Save current strategy data to sessionStorage
+    const backtestData = {
+      strategyJson,
+      messages,
+      nodes,
+      edges,
+      duration,
+      estimatedCapital,
+      monthlyReturn,
+      guardrails: currentGuardrails,
+    };
+    
+    sessionStorage.setItem('backtestData', JSON.stringify(backtestData));
+    
+    // Navigate to backtest simulator
+    router.push('/backtest-simulator');
   };
 
   return (
@@ -602,7 +623,12 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData, o
             <Button variant="outline" size="md" className="flex-1">
               Explain
             </Button>
-            <Button size="md" className="flex-1">
+            <Button 
+              size="md" 
+              className="flex-1"
+              onClick={handleRunBacktest}
+              disabled={!strategyJson && nodes.length === 0}
+            >
               Run Backtest
             </Button>
           </div>
