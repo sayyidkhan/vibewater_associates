@@ -23,8 +23,71 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Custom Scrollbar Styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #374151 #1A1F2E;
+}
+
+/* Webkit browsers (Chrome, Safari, Edge) */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #1A1F2E;
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 4px;
+  border: 2px solid #1A1F2E;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #4B5563;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: #6B7280;
+}
+
+/* Horizontal scrollbar */
+*::-webkit-scrollbar-corner {
+  background: #1A1F2E;
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+}
+
+/* Custom animations for strategy loading */
+@keyframes slideRight {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(200%);
+    opacity: 0.6;
   }
 }

@@ -7,8 +7,8 @@ pydantic-settings>=2.1.0
 python-dotenv==1.0.0
 python-multipart==0.0.6
 python-dateutil==2.8.2
-openai>=1.13.3
-anthropic>=0.39.0
+openai>=1.68.2
+anthropic>=0.40.0
 boto3==1.34.34
 websockets==12.0
 # CrewAI and mem0 for agent-based strategy execution

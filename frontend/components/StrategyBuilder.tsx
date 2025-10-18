@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import ReactFlow, {
   Node,
   Edge,
@@ -12,7 +13,8 @@ import ReactFlow, {
   useEdgesState,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { MessageSquare, History, Bitcoin, TrendingUp, Target, AlertCircle, DollarSign, Shield, Send, Wifi, WifiOff } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import { MessageSquare, History, Bitcoin, TrendingUp, Target, AlertCircle, DollarSign, Shield, Send, Wifi, WifiOff, Clock, ArrowLeftRight, TrendingDown, Lightbulb } from "lucide-react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import type { StrategySchema, Guardrail } from "@/types";
@@ -26,16 +28,13 @@ interface StrategyBuilderProps {
     messages?: any[];
     parsedStrategy?: any;
   };
+  onStateChange?: (state: { strategyJson: any; messages: any[] }) => void;
 }
 
 const nodeTypes = {
   start: { icon: TrendingUp, label: "Start Strategy", color: "#3b82f6" },
   crypto_category: { icon: Bitcoin, label: "Crypto Category", color: "#2563eb" },
-  category: { icon: Bitcoin, label: "Crypto Category", color: "#2563eb" },
   entry_condition: { icon: TrendingUp, label: "Set Entry Condition", color: "#16a34a" },
-  entry: { icon: TrendingUp, label: "Set Entry Condition", color: "#16a34a" },
-  exit_target: { icon: Target, label: "Profit Target", color: "#3b82f6" },
-  take_profit: { icon: Target, label: "Profit Target", color: "#3b82f6" },
   profit_target: { icon: Target, label: "Profit Target", color: "#3b82f6" },
   stop_loss: { icon: AlertCircle, label: "Stop Loss", color: "#dc2626" },
   capital: { icon: DollarSign, label: "Manage Capital", color: "#ca8a04" },
@@ -43,7 +42,22 @@ const nodeTypes = {
   end: { icon: Target, label: "End Strategy", color: "#4b5563" },
 };
 
-export default function StrategyBuilder({ schema, onSchemaChange, initialData }: StrategyBuilderProps) {
+// Backward compatibility mapping for old node type keys
+const nodeTypeAliases: Record<string, keyof typeof nodeTypes> = {
+  category: "crypto_category",
+  entry: "entry_condition",
+  exit_target: "profit_target",
+  take_profit: "profit_target",
+};
+
+// Helper function to get node config with alias support
+const getNodeConfig = (nodeType: string) => {
+  const type = (nodeType in nodeTypes ? nodeType : nodeTypeAliases[nodeType]) as keyof typeof nodeTypes;
+  return nodeTypes[type];
+};
+
+export default function StrategyBuilder({ schema, onSchemaChange, initialData, onStateChange }: StrategyBuilderProps) {
+  const router = useRouter();
   const initialNodes: Node[] = schema?.nodes.map((node) => ({
     id: node.id,
     type: "default",
@@ -61,7 +75,7 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [inputMessage, setInputMessage] = useState("");
-  const [degenClass, setDegenClass] = useState("High");
+  const [duration, setDuration] = useState("30 days");
   const [estimatedCapital, setEstimatedCapital] = useState(1000);
   const [monthlyReturn, setMonthlyReturn] = useState(7.0);
   const [currentGuardrails, setCurrentGuardrails] = useState<Guardrail[]>([]);
@@ -73,6 +87,18 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
     'ws://localhost:8000/ws/chat',
     initialMessages
   );
+  
+  // Examples for quick strategy selection
+  const examples = [
+    { label: "Momentum", icon: TrendingUp },
+    { label: "Mean Reversion", icon: ArrowLeftRight },
+    { label: "Arbitrage", icon: TrendingDown },
+    { label: "Long/Short", icon: Lightbulb },
+  ];
+
+  const handleExampleClick = (example: string) => {
+    setInputMessage(`I have $1000, please choose for me the right strategy that gives at least 7% returns monthly. Strategy type: ${example}`);
+  };
   
   // Auto-scroll to bottom when messages change or streaming updates
   useEffect(() => {
@@ -87,7 +113,7 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
       // Update flowchart
       if (json.flowchart?.nodes) {
         const newNodes: Node[] = json.flowchart.nodes.map((node: any, index: number) => {
-          const nodeConfig = nodeTypes[node.type as keyof typeof nodeTypes];
+          const nodeConfig = getNodeConfig(node.type);
           
           // Extract detailed info from meta
           let detailText = "";
@@ -146,8 +172,8 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
       }
       
       // Update configuration
-      if (json.degen_class?.selected) {
-        setDegenClass(json.degen_class.selected);
+      if (json.strategy_metrics?.duration) {
+        setDuration(json.strategy_metrics.duration);
       }
       
       if (json.strategy_metrics) {
@@ -175,32 +201,21 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
     [setEdges]
   );
 
-  const addNode = (type: keyof typeof nodeTypes) => {
-    const nodeConfig = nodeTypes[type];
-    const newNode: Node = {
-      id: `${type}-${Date.now()}`,
-      type: "default",
-      position: { x: Math.random() * 400 + 100, y: Math.random() * 300 + 100 },
-      data: { 
-        label: (
-          <div className="flex items-center gap-2">
-            <nodeConfig.icon className="w-4 h-4" />
-            <span>{nodeConfig.label}</span>
-          </div>
-        ),
-      },
-      style: {
-        background: nodeConfig.color,
-        color: "white",
-        border: "1px solid #374151",
-        borderRadius: "8px",
-        padding: "10px",
-      },
-    };
-
-    setNodes((nds) => [...nds, newNode]);
-  };
-
+  // Notify parent component when state changes (with proper ref to avoid infinite loops)
+  const onStateChangeRef = useRef(onStateChange);
+  useEffect(() => {
+    onStateChangeRef.current = onStateChange;
+  }, [onStateChange]);
+  
+  useEffect(() => {
+    if (onStateChangeRef.current && (messages.length > 0 || strategyJson)) {
+      onStateChangeRef.current({
+        strategyJson: strategyJson,
+        messages: messages
+      });
+    }
+  }, [messages, strategyJson]);
+  
   // Update UI when strategy JSON is received from backend
   useEffect(() => {
     if (strategyJson) {
@@ -210,7 +225,7 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
       if (strategyJson.flowchart?.nodes) {
         console.log('📊 Updating flowchart with', strategyJson.flowchart.nodes.length, 'nodes');
         const newNodes: Node[] = strategyJson.flowchart.nodes.map((node: any, index: number) => {
-          const nodeConfig = nodeTypes[node.type as keyof typeof nodeTypes];
+          const nodeConfig = getNodeConfig(node.type);
           
           // Extract detailed info from meta
           let detailText = "";
@@ -268,10 +283,10 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
         setEdges(newEdges);
       }
       
-      // Update degen class
-      if (strategyJson.degen_class?.selected) {
-        console.log('🎲 Updating degen class to:', strategyJson.degen_class.selected);
-        setDegenClass(strategyJson.degen_class.selected);
+      // Update duration
+      if (strategyJson.strategy_metrics?.duration) {
+        console.log('⏱️ Updating duration to:', strategyJson.strategy_metrics.duration);
+        setDuration(strategyJson.strategy_metrics.duration);
       }
       
       // Update metrics
@@ -312,12 +327,89 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
     }
   };
 
+  const handleRunBacktest = async () => {
+    try {
+      // First, save strategy to database to get a UUID
+      const strategyPayload = {
+        user_id: "demo-user", // TODO: Replace with actual user ID from auth
+        name: "AI Generated Strategy",
+        description: "Strategy created via AI assistant",
+        status: "Backtest",
+        schema_json: {
+          nodes: nodes.map(node => ({
+            id: node.id,
+            type: node.type,
+            data: node.data || {},
+            position: node.position || { x: 0, y: 0 }
+          })),
+          connections: edges.map((edge, index) => ({
+            id: edge.id || `edge-${index}`,
+            source: edge.source,
+            target: edge.target
+          }))
+        },
+        guardrails: currentGuardrails.length > 0 
+          ? currentGuardrails.map(g => ({
+              type: g.type || "info",
+              level: g.level || "info",
+              message: g.message || ""
+            }))
+          : [
+              { type: "no_short_selling", level: "info", message: "No short selling allowed" },
+              { type: "max_drawdown", level: "warning", message: "Maximum 10% drawdown limit" }
+            ]
+      };
+
+      console.log('Saving strategy to database...', strategyPayload);
+      
+      const response = await fetch('http://localhost:8000/strategies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(strategyPayload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+        console.error('Failed to save strategy:', errorData);
+        throw new Error(`Failed to save strategy: ${JSON.stringify(errorData)}`);
+      }
+
+      const savedStrategy = await response.json();
+      console.log('Strategy saved with ID:', savedStrategy.id);
+
+      // Save strategy data with ID to sessionStorage
+      const backtestData = {
+        strategyId: savedStrategy.id, // Include the database UUID
+        name: savedStrategy.name,
+        strategyJson,
+        messages,
+        nodes,
+        edges,
+        duration,
+        estimatedCapital,
+        monthlyReturn,
+        guardrails: currentGuardrails,
+        flowchart: strategyPayload.schema_json, // Include schema for reference
+      };
+      
+      sessionStorage.setItem('backtestData', JSON.stringify(backtestData));
+      
+      // Navigate to backtest simulator
+      router.push('/backtest-simulator');
+    } catch (error) {
+      console.error('Error saving strategy:', error);
+      alert('Failed to save strategy. Please try again.');
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-200px)]">
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[calc(100vh-90px)]">
       {/* Left Sidebar - Chat */}
-      <div className="lg:col-span-1">
-        <Card className="h-full flex flex-col">
-          <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-800">
+      <div className="lg:col-span-1 h-full min-h-0">
+        <Card className="h-full flex flex-col overflow-hidden">
+          <div className="flex-shrink-0 flex items-center justify-between mb-4 pb-4 border-b border-gray-800">
             <div className="flex items-center gap-2">
               <MessageSquare className="w-5 h-5" />
               <h3 className="font-semibold">AI Assistant</h3>
@@ -337,7 +429,9 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+          <div className="flex-1 overflow-y-auto space-y-4 min-h-0 pr-2"
+               style={{ scrollbarGutter: 'stable' }}
+          >
             {/* Connection status */}
             {!isConnected && (
               <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
@@ -378,7 +472,21 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
                     : "bg-card-hover"
                 }`}
               >
-                <p className="text-sm">{msg.content}</p>
+                <div className="text-sm prose prose-invert prose-sm max-w-none">
+                  <ReactMarkdown
+                    components={{
+                      p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                      ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                      li: ({ children }) => <li className="ml-2">{children}</li>,
+                      strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                      em: ({ children }) => <em className="italic">{children}</em>,
+                      code: ({ children }) => <code className="bg-black/30 px-1 py-0.5 rounded text-xs">{children}</code>,
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
               </div>
             ))}
             
@@ -386,7 +494,22 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
             {isLoading && (
               <div className="bg-card-hover rounded-lg p-3">
                 {streamingMessage ? (
-                  <p className="text-sm whitespace-pre-wrap">{streamingMessage}<span className="inline-block w-1 h-4 bg-gray-400 ml-1 animate-pulse"></span></p>
+                  <div className="text-sm prose prose-invert prose-sm max-w-none">
+                    <ReactMarkdown
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                        ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                        li: ({ children }) => <li className="ml-2">{children}</li>,
+                        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                        em: ({ children }) => <em className="italic">{children}</em>,
+                        code: ({ children }) => <code className="bg-black/30 px-1 py-0.5 rounded text-xs">{children}</code>,
+                      }}
+                    >
+                      {streamingMessage}
+                    </ReactMarkdown>
+                    <span className="inline-block w-1 h-4 bg-gray-400 ml-1 animate-pulse"></span>
+                  </div>
                 ) : (
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1">
@@ -403,7 +526,7 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="border-t border-gray-800 pt-4">
+          <div className="flex-shrink-0 border-t border-gray-800 pt-4 mt-4">
             <div className="flex gap-2 items-end">
               <textarea
                 placeholder="Type your message..."
@@ -433,45 +556,30 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
                 <Send className="w-4 h-4" />
               </button>
             </div>
-          </div>
-        </Card>
 
-        {/* Toolbox */}
-        <Card className="mt-4">
-          <h3 className="font-semibold mb-4">Toolbox</h3>
-          <div className="space-y-2">
-            {Object.entries(nodeTypes).map(([key, config]) => (
-              <button
-                key={key}
-                onClick={() => addNode(key as keyof typeof nodeTypes)}
-                className="w-full flex items-center gap-2 p-2 bg-card-hover hover:bg-primary/20 rounded-lg transition-colors text-left text-sm"
-              >
-                <config.icon className="w-4 h-4" />
-                <span>{config.label}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-6">
-            <h4 className="text-sm font-medium mb-2">Profit Target</h4>
-            <div className="space-y-2">
-              {["0.5%", "2%", "4%"].map((target) => (
-                <button
-                  key={target}
-                  className="w-full p-2 bg-card-hover hover:bg-primary/20 rounded text-sm transition-colors"
-                >
-                  {target}
-                </button>
-              ))}
+            <div className="mt-2">
+              <p className="text-[10px] text-gray-500 mb-1.5">Examples:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {examples.map((example) => (
+                  <button
+                    key={example.label}
+                    onClick={() => handleExampleClick(example.label)}
+                    className="flex items-center gap-1 px-2 py-0.5 bg-card-hover hover:bg-primary/20 border border-gray-700 rounded-full text-[10px] transition-colors"
+                  >
+                    <example.icon className="w-2.5 h-2.5" />
+                    {example.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </Card>
       </div>
 
       {/* Center - Visual Flowchart Editor */}
-      <div className="lg:col-span-2">
-        <Card className="h-full flex flex-col">
-          <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-800">
+      <div className="lg:col-span-2 h-full min-h-0">
+        <Card className="h-full flex flex-col overflow-hidden">
+          <div className="flex-shrink-0 flex items-center justify-between mb-4 pb-4 border-b border-gray-800">
             <h3 className="font-semibold">Visual Flowchart Editor</h3>
             <div className="flex gap-2">
               <Button variant="outline" size="sm">
@@ -502,55 +610,49 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
       </div>
 
       {/* Right Sidebar - Configuration */}
-      <div className="lg:col-span-1">
-        <Card className="h-full flex flex-col">
-          <h3 className="font-semibold mb-4">Configuration</h3>
+      <div className="lg:col-span-1 h-full min-h-0">
+        <Card className="h-full flex flex-col overflow-hidden">
+          <h3 className="flex-shrink-0 text-lg font-semibold mb-6">Configuration</h3>
 
-          <div className="flex-1 overflow-y-auto space-y-6">
-            {/* Degen Class */}
-            <div>
-              <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-                <Shield className="w-4 h-4" />
-                Degen Class:
-              </h4>
-              <div className="grid grid-cols-3 gap-2">
-                {["High", "Medium", "Low"].map((level) => (
-                  <button
-                    key={level}
-                    onClick={() => setDegenClass(level)}
-                    className={`p-2 rounded text-sm transition-colors ${
-                      level === degenClass
-                        ? "bg-primary text-white"
-                        : "bg-card-hover hover:bg-primary/20"
-                    }`}
-                  >
-                    {level}
-                  </button>
-                ))}
+          <div className="flex-1 overflow-y-auto space-y-3 pr-2 min-h-0" style={{ scrollbarGutter: 'stable' }}>
+            {/* Duration */}
+            <div className="p-3 bg-card-hover border border-gray-700 rounded-lg">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Clock className="w-5 h-5 text-primary" />
+                <span className="text-sm font-semibold">Strategy Duration</span>
               </div>
+              <p className="text-xl font-bold">{duration}</p>
+              <p className="text-xs text-gray-400 mt-0.5">backtest period</p>
             </div>
 
             {/* Strategy Impact */}
-            <div className="p-4 bg-primary/10 border border-primary/30 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <TrendingUp className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium">Strategy Impact:</span>
+            <div className="p-3 bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/30 rounded-lg">
+              <div className="flex items-center gap-2 mb-1.5">
+                <TrendingUp className="w-5 h-5 text-primary" />
+                <span className="text-sm font-semibold">Strategy Impact</span>
               </div>
-              <p className="text-sm">+{monthlyReturn}% expected monthly returns</p>
+              <p className="text-xl font-bold text-primary">+{monthlyReturn}%</p>
+              <p className="text-xs text-gray-400 mt-0.5">expected monthly returns</p>
             </div>
 
             {/* Estimated Capital */}
-            <div className="p-4 bg-card-hover rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <DollarSign className="w-4 h-4" />
-                <span className="text-sm font-medium">Estimated Capital Required:</span>
+            <div className="p-3 bg-card-hover border border-gray-700 rounded-lg">
+              <div className="flex items-center gap-2 mb-1.5">
+                <DollarSign className="w-5 h-5 text-gray-400" />
+                <span className="text-sm font-semibold">Estimated Capital</span>
               </div>
-              <p className="text-sm">${estimatedCapital.toLocaleString()}</p>
+              <p className="text-xl font-bold">${estimatedCapital.toLocaleString()}</p>
+              <p className="text-xs text-gray-400 mt-0.5">required to start</p>
             </div>
+
+            <div className="h-px bg-gray-800 my-2"></div>
 
             {/* Guardrails */}
             <div>
-              <h4 className="text-sm font-medium mb-3">Guardrails (Safety Nets)</h4>
+              <div className="flex items-center gap-2 mb-3">
+                <Shield className="w-5 h-5 text-success" />
+                <h4 className="text-sm font-semibold">Guardrails (Safety Nets)</h4>
+              </div>
               <div className="space-y-2">
                 {(currentGuardrails.length > 0 ? currentGuardrails : [
                   { type: "no_short_selling", level: "info" as const, message: "No short selling" },
@@ -558,7 +660,7 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
                 ]).map((guardrail, index) => (
                   <div
                     key={index}
-                    className={`flex items-center gap-2 p-2 rounded-lg text-sm ${
+                    className={`flex items-center gap-3 p-3 rounded-lg text-sm ${
                       guardrail.level === "error"
                         ? "bg-danger/10 border border-danger/30 text-danger"
                         : guardrail.level === "warning"
@@ -566,8 +668,8 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
                         : "bg-success/10 border border-success/30 text-success"
                     }`}
                   >
-                    {guardrail.level === "error" ? "⛔" : guardrail.level === "warning" ? "⚠️" : "✅"}
-                    <span>{guardrail.message}</span>
+                    <span className="text-base">{guardrail.level === "error" ? "⛔" : guardrail.level === "warning" ? "⚠️" : "✅"}</span>
+                    <span className="flex-1">{guardrail.message}</span>
                   </div>
                 ))}
               </div>
@@ -575,11 +677,16 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData }:
           </div>
 
           {/* Actions */}
-          <div className="flex gap-3 mt-6 pt-4 border-t border-gray-800">
+          <div className="flex-shrink-0 flex gap-3 mt-6 pt-6 border-t border-gray-800">
             <Button variant="outline" size="md" className="flex-1">
               Explain
             </Button>
-            <Button size="md" className="flex-1">
+            <Button 
+              size="md" 
+              className="flex-1"
+              onClick={handleRunBacktest}
+              disabled={!strategyJson && nodes.length === 0}
+            >
               Run Backtest
             </Button>
           </div>

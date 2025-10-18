@@ -18,6 +18,121 @@ class StrategyExecutionService:
     Handles the complete workflow from strategy analysis to code execution.
     """
     
+    async def execute_strategy_with_streaming(
+        self,
+        strategy_id: str,
+        strategy_schema: Dict[str, Any],
+        strategy_name: str,
+        params: Dict[str, Any],
+        callback
+    ) -> Dict[str, Any]:
+        """
+        Execute a strategy with real-time streaming via WebSocket.
+        
+        Args:
+            strategy_id: ID of the strategy
+            strategy_schema: Strategy schema JSON
+            strategy_name: Name of the strategy
+            params: Backtest parameters
+            callback: Async callback function for streaming updates
+        
+        Returns:
+            Dict with execution results
+        """
+        user_id = "user1"  # TODO: Get from authentication
+        
+        # Prepare strategy JSON and parameters
+        strategy_json = json.dumps(strategy_schema)
+        params_dict = {
+            'strategy_name': strategy_name,
+            'start_date': params.get('start_date', '2024-01-01'),
+            'end_date': params.get('end_date', '2024-12-31'),
+            'initial_capital': params.get('initial_capital', 10000),
+            'fees': params.get('fees', 0.001),
+            'slippage': params.get('slippage', 0.001)
+        }
+        
+        # Get event loop
+        loop = asyncio.get_event_loop()
+        
+        # Create a synchronous callback wrapper for the sync CrewAI execution
+        callback_queue = asyncio.Queue()
+        execution_complete = asyncio.Event()
+        
+        def sync_callback(update):
+            """Synchronous callback that queues updates"""
+            try:
+                loop.call_soon_threadsafe(
+                    callback_queue.put_nowait, update
+                )
+            except Exception as e:
+                print(f"Error queuing update: {e}")
+        
+        # Start a task to emit queued updates
+        async def emit_updates():
+            """Continuously emit updates from the queue"""
+            try:
+                while not execution_complete.is_set() or not callback_queue.empty():
+                    try:
+                        update = await asyncio.wait_for(callback_queue.get(), timeout=0.5)
+                        await callback(update)
+                        # Only log important events
+                        update_type = update.get('type', 'unknown')
+                        if update_type not in ['agent_output']:
+                            print(f"📤 Emitted: {update_type}")
+                    except asyncio.TimeoutError:
+                        # No updates in queue, continue waiting
+                        continue
+            except Exception as e:
+                print(f"Error in emit_updates: {e}")
+        
+        emit_task = asyncio.create_task(emit_updates())
+        
+        try:
+            print("🔄 Starting CrewAI execution in thread pool...")
+            
+            # Send initial status update
+            await callback({
+                "type": "execution_started",
+                "message": "Starting strategy analysis..."
+            })
+            
+            result = await loop.run_in_executor(
+                None,
+                strategy_execution_crew.execute_strategy,
+                strategy_json,
+                params_dict,
+                user_id,
+                sync_callback
+            )
+            
+            print("✅ CrewAI execution completed")
+            
+            # Mark execution as complete
+            execution_complete.set()
+            
+            # Wait for all queued updates to be emitted
+            await asyncio.sleep(1.0)
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error in execute_strategy_with_streaming: {e}")
+            import traceback
+            traceback.print_exc()
+            execution_complete.set()
+            raise
+            
+        finally:
+            execution_complete.set()
+            # Wait for emit task to finish
+            await asyncio.sleep(0.5)
+            emit_task.cancel()
+            try:
+                await emit_task
+            except asyncio.CancelledError:
+                pass
+    
     async def execute_strategy(
         self,
         strategy_id: str,

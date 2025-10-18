@@ -222,7 +222,13 @@ class StrategyExecutionCrew:
         self.generator_agent = create_code_generator_agent()
         self.executor_agent = create_code_executor_agent()
     
-    def execute_strategy(self, strategy_json: str, params: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+    def execute_strategy(
+        self, 
+        strategy_json: str, 
+        params: Dict[str, Any], 
+        user_id: str,
+        callback=None
+    ) -> Dict[str, Any]:
         """
         Execute the complete strategy workflow.
         
@@ -230,16 +236,47 @@ class StrategyExecutionCrew:
             strategy_json: JSON string of strategy schema
             params: Backtest parameters
             user_id: User ID for memory storage
+            callback: Optional callback function for streaming updates
         
         Returns:
             Dict with execution results
         """
         import json
+        import sys
+        import io
         
         params_str = json.dumps(params)
         
+        # Notify start of analysis
+        if callback:
+            print("🔔 Sending agent_start notification for Agent 1")
+            callback({
+                "type": "agent_start",
+                "agent_id": 1,
+                "agent_name": "Strategy Analyzer",
+                "description": "Analyzing strategy parameters and market conditions"
+            })
+            callback({
+                "type": "agent_step",
+                "agent_id": 1,
+                "step": "Loading strategy configuration..."
+            })
+        
         # Create tasks
         analysis_task = create_analysis_task(strategy_json, params, self.analyzer_agent)
+        
+        # Notify analysis progress
+        if callback:
+            callback({
+                "type": "agent_step",
+                "agent_id": 1,
+                "step": "Analyzing market conditions..."
+            })
+            callback({
+                "type": "agent_step",
+                "agent_id": 1,
+                "step": "Validating parameters..."
+            })
         
         # For code generation, we'll pass the analysis result
         # Note: In CrewAI, tasks can access previous task outputs via context
@@ -255,30 +292,36 @@ Steps:
 1. Use generate_vectorbt_code_tool with the strategy JSON and parameters
 2. Validate the generated code with validate_python_code_tool
 3. If validation fails, regenerate and validate again
-4. Return the final validated code
+4. Return ONLY the final validated Python code as a plain string
 
-Return only the Python code as a string.
+IMPORTANT: Your final answer must be ONLY the Python code, nothing else. No explanations, no markdown, just the raw Python code.
 """,
             agent=self.generator_agent,
-            expected_output="Complete, validated VectorBT Python code",
+            expected_output="Complete, validated VectorBT Python code as plain text",
             context=[analysis_task]  # Uses analysis task output
         )
         
         execution_task = Task(
-            description=f"""Execute the generated code and return results.
+            description=f"""You will receive Python code from the Code Generator agent.
 
-User ID: {user_id}
+Your task is to execute this code and return the backtest results.
 
 Steps:
-1. Validate the code from the previous task
-2. Execute it using execute_python_code_tool
-3. If successful, store results in memory with user_id: {user_id}
-4. Return execution results as JSON
+1. Take the Python code output from the previous Code Generator task
+2. Validate it using validate_python_code_tool(code)
+3. If validation passes, execute using execute_python_code_tool(code, timeout=300)
+4. Parse the execution results
+5. If successful, store in memory using store_strategy_memory_tool(content, user_id="{user_id}", metadata)
+6. Return the complete execution results as JSON
 
-Return the complete execution results.
+IMPORTANT: The code is in the context from the previous task. Use it directly.
+
+User ID for memory storage: {user_id}
+
+Return the execution results with metrics.
 """,
             agent=self.executor_agent,
-            expected_output="Execution results with metrics",
+            expected_output="Execution results with metrics in JSON format",
             context=[code_gen_task]  # Uses code generation task output
         )
         
@@ -287,11 +330,129 @@ Return the complete execution results.
             agents=[self.analyzer_agent, self.generator_agent, self.executor_agent],
             tasks=[analysis_task, code_gen_task, execution_task],
             process=Process.sequential,
-            verbose=True
+            verbose=True,  # Enable verbose output
+            memory=False  # Disable memory to avoid issues
         )
         
-        # Execute workflow
-        result = crew.kickoff()
+        # Custom execution wrapper to capture and stream agent outputs in real-time
+        class StreamingOutput:
+            """Custom stdout that streams output to callback"""
+            def __init__(self, original_stdout, callback_fn):
+                self.original_stdout = original_stdout
+                self.callback = callback_fn
+                self.buffer = ""
+                self.current_agent_id = 1
+                
+            def write(self, text):
+                self.original_stdout.write(text)  # Still print to console
+                self.buffer += text
+                
+                # Only stream important logs to frontend
+                if not text.strip() or not self.callback:
+                    return
+                
+                # Filter: only send important CrewAI events
+                important_keywords = [
+                    "# Agent:",
+                    "Working on task:",
+                    "Thought:",
+                    "Action:",
+                    "Action Input:",
+                    "Observation:",
+                    "Final Answer:",
+                    "Strategy Analyzer",
+                    "Code Generator", 
+                    "VectorBT",
+                    "Executor",
+                    "Validator",
+                    "Tool:",
+                    "Result:",
+                    "STARTING CREWAI",
+                    "EXECUTION COMPLETE"
+                ]
+                
+                is_important = any(keyword in text for keyword in important_keywords)
+                
+                if is_important:
+                    # Detect agent transitions
+                    if "Strategy Analyzer" in text or "# Agent:" in text:
+                        self.current_agent_id = 1
+                        self.callback({
+                            "type": "agent_output",
+                            "agent_id": 1,
+                            "output": text.strip()
+                        })
+                    elif "Code Generator" in text or "VectorBT" in text:
+                        if self.current_agent_id == 1:
+                            self.callback({"type": "agent_complete", "agent_id": 1})
+                            self.callback({
+                                "type": "agent_start",
+                                "agent_id": 2,
+                                "agent_name": "Code Generator",
+                                "description": "Generating Python code for vectorbt execution"
+                            })
+                        self.current_agent_id = 2
+                        self.callback({
+                            "type": "agent_output",
+                            "agent_id": 2,
+                            "output": text.strip()
+                        })
+                    elif "Executor" in text or "Validator" in text or "executing" in text.lower():
+                        if self.current_agent_id == 2:
+                            self.callback({"type": "agent_complete", "agent_id": 2})
+                            self.callback({
+                                "type": "agent_start",
+                                "agent_id": 3,
+                                "agent_name": "Risk Validator",
+                                "description": "Validating risk parameters"
+                            })
+                        self.current_agent_id = 3
+                        self.callback({
+                            "type": "agent_output",
+                            "agent_id": 3,
+                            "output": text.strip()
+                        })
+                    elif self.current_agent_id > 0:
+                        # Stream important output to current agent
+                        self.callback({
+                            "type": "agent_output",
+                            "agent_id": self.current_agent_id,
+                            "output": text.strip()
+                        })
+                
+            def flush(self):
+                self.original_stdout.flush()
+        
+        old_stdout = None
+        if callback:
+            old_stdout = sys.stdout
+            sys.stdout = StreamingOutput(old_stdout, callback)
+        
+        try:
+            print("=" * 80)
+            print("🚀 STARTING CREWAI EXECUTION")
+            print("=" * 80)
+            
+            # Execute workflow
+            result = crew.kickoff()
+            
+            print("=" * 80)
+            print("✅ CREWAI EXECUTION COMPLETE")
+            print("=" * 80)
+            
+            # Send final completion notifications
+            if callback:
+                callback({"type": "agent_complete", "agent_id": 3})
+                callback({
+                    "type": "agent_start",
+                    "agent_id": 4,
+                    "agent_name": "Backtest Executor",
+                    "description": "Running backtest simulation"
+                })
+                
+        finally:
+            if old_stdout:
+                sys.stdout = old_stdout
         
         # Parse and return result
         try:
@@ -306,15 +467,58 @@ Return the complete execution results.
                 output = str(result)
             
             # Try to parse as JSON
+            parsed_result = None
             if isinstance(output, str):
                 try:
-                    return json.loads(output)
+                    parsed_result = json.loads(output)
                 except json.JSONDecodeError:
-                    return {'status': 'completed', 'result': output}
+                    parsed_result = {'status': 'completed', 'result': output}
+            else:
+                parsed_result = output if isinstance(output, dict) else {'status': 'completed', 'result': output}
             
-            return output if isinstance(output, dict) else {'status': 'completed', 'result': output}
+            # Notify execution complete
+            if callback:
+                callback({
+                    "type": "agent_step",
+                    "agent_id": 4,
+                    "step": "Calculating metrics..."
+                })
+                
+                # Extract metrics if available
+                metrics = parsed_result.get('metrics', {})
+                if metrics:
+                    output_text = f"""✓ Backtest completed successfully
+
+📊 Performance Metrics:
+- Total Return: {metrics.get('total_return', 0):.2f}%
+- CAGR: {metrics.get('cagr', 0):.2f}%
+- Sharpe Ratio: {metrics.get('sharpe_ratio', 0):.2f}
+- Max Drawdown: {metrics.get('max_drawdown', 0):.2f}%
+- Win Rate: {metrics.get('win_rate', 0):.1f}%
+- Total Trades: {metrics.get('trades', 0)}
+- vs Benchmark: {metrics.get('vs_benchmark', 0):+.2f}%
+"""
+                else:
+                    output_text = "✓ Backtest execution complete"
+                
+                callback({
+                    "type": "agent_output",
+                    "agent_id": 4,
+                    "output": output_text
+                })
+                callback({
+                    "type": "agent_complete",
+                    "agent_id": 4
+                })
+            
+            return parsed_result
             
         except Exception as e:
+            if callback:
+                callback({
+                    "type": "error",
+                    "error": str(e)
+                })
             return {'status': 'error', 'error': str(e), 'result': str(result)}
 
 
