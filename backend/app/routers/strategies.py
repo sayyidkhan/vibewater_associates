@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime
-from ..models import Strategy, StrategyMetrics
+import json
+from ..models import Strategy, StrategyMetrics, StrategySchema
 from ..database import get_database
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
@@ -9,16 +10,36 @@ router = APIRouter(prefix="/strategies", tags=["strategies"])
 @router.post("", response_model=Strategy)
 async def create_strategy(strategy: Strategy):
     """Create a new trading strategy"""
-    db = get_database()
+    pool = get_database()
     
-    strategy_dict = strategy.model_dump(exclude={"id"})
-    strategy_dict["created_at"] = datetime.utcnow()
-    strategy_dict["updated_at"] = datetime.utcnow()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO strategies (user_id, name, description, status, schema_json, guardrails, metrics)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id, user_id, name, description, status, schema_json, guardrails, metrics, created_at, updated_at
+            """,
+            strategy.user_id,
+            strategy.name,
+            strategy.description,
+            strategy.status,
+            json.dumps(strategy.schema_json.model_dump()),
+            json.dumps([g.model_dump() for g in strategy.guardrails]),
+            json.dumps(strategy.metrics.model_dump()) if strategy.metrics else None
+        )
     
-    result = await db.strategies.insert_one(strategy_dict)
-    strategy_dict["id"] = str(result.inserted_id)
-    
-    return Strategy(**strategy_dict)
+    return Strategy(
+        id=str(row['id']),
+        user_id=row['user_id'],
+        name=row['name'],
+        description=row['description'],
+        status=row['status'],
+        schema_json=StrategySchema(**row['schema_json']),
+        guardrails=[],
+        metrics=StrategyMetrics(**row['metrics']) if row['metrics'] else None,
+        created_at=row['created_at'],
+        updated_at=row['updated_at']
+    )
 
 @router.get("", response_model=List[Strategy])
 async def get_strategies(
@@ -26,125 +47,135 @@ async def get_strategies(
     user_id: Optional[str] = Query(None)
 ):
     """Get all strategies with optional filters"""
-    db = get_database()
+    pool = get_database()
     
-    query = {}
+    # Build query with filters
+    conditions = []
+    params = []
+    param_count = 1
+    
     if status:
-        query["status"] = status
+        conditions.append(f"status = ${param_count}")
+        params.append(status)
+        param_count += 1
     if user_id:
-        query["user_id"] = user_id
+        conditions.append(f"user_id = ${param_count}")
+        params.append(user_id)
+        param_count += 1
     
-    # For demo, return mock data
-    mock_strategies = [
-        Strategy(
-            id="1",
-            user_id="user1",
-            name="Buy low, sell high",
-            description="A simple strategy that buys when the price is low and sells when the price is high.",
-            status="Live",
-            schema_json={"nodes": [], "connections": []},
-            guardrails=[],
-            metrics=StrategyMetrics(
-                total_return=12.5,
-                cagr=8.5,
-                sharpe_ratio=1.8,
-                max_drawdown=-5.2,
-                win_rate=62,
-                trades=125,
-                vs_benchmark=3.1
-            )
-        ),
-        Strategy(
-            id="2",
-            user_id="user1",
-            name="Trend following",
-            description="A strategy that follows the trend of the market.",
-            status="Paper",
-            schema_json={"nodes": [], "connections": []},
-            guardrails=[],
-            metrics=StrategyMetrics(
-                total_return=25.1,
-                cagr=18.3,
-                sharpe_ratio=2.3,
-                max_drawdown=-8.9,
-                win_rate=58,
-                trades=87,
-                vs_benchmark=5.2
-            )
-        ),
-        Strategy(
-            id="3",
-            user_id="user1",
-            name="Mean reversion",
-            description="A strategy that bets on price reverting to its mean.",
-            status="Backtest",
-            schema_json={"nodes": [], "connections": []},
-            guardrails=[],
-            metrics=StrategyMetrics(
-                total_return=-2.3,
-                cagr=-1.5,
-                sharpe_ratio=-0.4,
-                max_drawdown=-15.7,
-                win_rate=45,
-                trades=203,
-                vs_benchmark=-8.1
-            )
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+    
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            f"""
+            SELECT id, user_id, name, description, status, schema_json, guardrails, metrics, created_at, updated_at
+            FROM strategies
+            {where_clause}
+            ORDER BY created_at DESC
+            """,
+            *params
         )
-    ]
     
-    return mock_strategies
+    strategies = []
+    for row in rows:
+        strategies.append(Strategy(
+            id=str(row['id']),
+            user_id=row['user_id'],
+            name=row['name'],
+            description=row['description'],
+            status=row['status'],
+            schema_json=StrategySchema(**row['schema_json']),
+            guardrails=[],
+            metrics=StrategyMetrics(**row['metrics']) if row['metrics'] else None,
+            created_at=row['created_at'],
+            updated_at=row['updated_at']
+        ))
+    
+    return strategies
 
 @router.get("/{strategy_id}", response_model=Strategy)
 async def get_strategy(strategy_id: str):
     """Get a specific strategy by ID"""
-    db = get_database()
+    pool = get_database()
     
-    # For demo, return mock data
-    return Strategy(
-        id=strategy_id,
-        user_id="user1",
-        name="Bitcoin (BTC) Performance",
-        description="Bitcoin trading strategy",
-        status="Live",
-        schema_json={"nodes": [], "connections": []},
-        guardrails=[],
-        metrics=StrategyMetrics(
-            total_return=15.2,
-            cagr=8.5,
-            sharpe_ratio=1.2,
-            max_drawdown=-7.3,
-            win_rate=62,
-            trades=125,
-            vs_benchmark=3.1
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, name, description, status, schema_json, guardrails, metrics, created_at, updated_at
+            FROM strategies
+            WHERE id = $1
+            """,
+            strategy_id
         )
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+    
+    return Strategy(
+        id=str(row['id']),
+        user_id=row['user_id'],
+        name=row['name'],
+        description=row['description'],
+        status=row['status'],
+        schema_json=StrategySchema(**row['schema_json']),
+        guardrails=[],
+        metrics=StrategyMetrics(**row['metrics']) if row['metrics'] else None,
+        created_at=row['created_at'],
+        updated_at=row['updated_at']
     )
 
 @router.put("/{strategy_id}", response_model=Strategy)
 async def update_strategy(strategy_id: str, strategy: Strategy):
     """Update an existing strategy"""
-    db = get_database()
+    pool = get_database()
     
-    strategy_dict = strategy.model_dump(exclude={"id", "created_at"})
-    strategy_dict["updated_at"] = datetime.utcnow()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE strategies
+            SET user_id = $1, name = $2, description = $3, status = $4,
+                schema_json = $5, guardrails = $6, metrics = $7, updated_at = NOW()
+            WHERE id = $8
+            RETURNING id, user_id, name, description, status, schema_json, guardrails, metrics, created_at, updated_at
+            """,
+            strategy.user_id,
+            strategy.name,
+            strategy.description,
+            strategy.status,
+            json.dumps(strategy.schema_json.model_dump()),
+            json.dumps([g.model_dump() for g in strategy.guardrails]),
+            json.dumps(strategy.metrics.model_dump()) if strategy.metrics else None,
+            strategy_id
+        )
     
-    result = await db.strategies.update_one(
-        {"_id": strategy_id},
-        {"$set": strategy_dict}
-    )
-    
-    if result.matched_count == 0:
+    if not row:
         raise HTTPException(status_code=404, detail="Strategy not found")
     
-    return strategy
+    return Strategy(
+        id=str(row['id']),
+        user_id=row['user_id'],
+        name=row['name'],
+        description=row['description'],
+        status=row['status'],
+        schema_json=StrategySchema(**row['schema_json']),
+        guardrails=[],
+        metrics=StrategyMetrics(**row['metrics']) if row['metrics'] else None,
+        created_at=row['created_at'],
+        updated_at=row['updated_at']
+    )
 
 @router.delete("/{strategy_id}")
 async def delete_strategy(strategy_id: str):
     """Delete a strategy"""
-    db = get_database()
+    pool = get_database()
     
-    result = await db.strategies.delete_one({"_id": strategy_id})
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM strategies WHERE id = $1",
+            strategy_id
+        )
     
-    if result.deleted_count == 0:
+    if result == "DELETE 0":
         raise HTTPException(status_code=404, detail="Strategy not found")
     
     return {"message": "Strategy deleted successfully"}
