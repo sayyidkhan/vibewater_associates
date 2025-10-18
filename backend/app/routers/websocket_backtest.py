@@ -106,6 +106,18 @@ async def websocket_backtest_endpoint(websocket: WebSocket):
                     strategy_name = strategy_name_provided
                 else:
                     # Get strategy from database to extract schema
+                    # Validate UUID format
+                    is_valid_uuid = len(strategy_id) >= 32 and len(strategy_id) <= 36
+                    
+                    if not is_valid_uuid:
+                        error_msg = f"Invalid UUID format for strategy_id: {strategy_id}"
+                        print(f"❌ {error_msg}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": error_msg
+                        })
+                        continue
+                    
                     try:
                         pool = get_database()
                         async with pool.acquire() as conn:
@@ -119,39 +131,22 @@ async def websocket_backtest_endpoint(websocket: WebSocket):
                             strategy_name = strategy['name']
                             print(f"✅ Retrieved strategy from database: {strategy_name}")
                         else:
-                            print(f"⚠️  Strategy {strategy_id} not found in database, using mock strategy for testing")
-                            # Use mock strategy for testing
-                            strategy_schema = {
-                                "nodes": [
-                                    {"id": "1", "type": "category", "meta": {"category": "Bitcoin"}},
-                                    {"id": "2", "type": "entry_condition", "meta": {
-                                        "mode": "manual",
-                                        "rules": ["Buy when 10-day moving average crosses above 30-day moving average", "RSI below 30 (oversold)"]
-                                    }},
-                                    {"id": "3", "type": "stop_loss", "meta": {"stop_pct": 5.0}},
-                                    {"id": "4", "type": "take_profit", "meta": {"target_pct": 7.0}}
-                                ],
-                                "edges": []
-                            }
-                            strategy_name = "Mock Strategy - MA Crossover"
+                            error_msg = f"Strategy {strategy_id} not found in database"
+                            print(f"❌ {error_msg}")
+                            await websocket.send_json({
+                                "type": "error",
+                                "error": error_msg
+                            })
+                            continue
                             
                     except Exception as db_error:
-                        print(f"⚠️  Database error: {db_error}")
-                        print(f"📝 Using mock strategy for testing")
-                        # Use mock strategy when database not available
-                        strategy_schema = {
-                            "nodes": [
-                                {"id": "1", "type": "category", "meta": {"category": "Bitcoin"}},
-                                {"id": "2", "type": "entry_condition", "meta": {
-                                    "mode": "manual",
-                                    "rules": ["Buy when 10-day moving average crosses above 30-day moving average", "RSI below 30 (oversold)"]
-                                }},
-                                {"id": "3", "type": "stop_loss", "meta": {"stop_pct": 5.0}},
-                                {"id": "4", "type": "take_profit", "meta": {"target_pct": 7.0}}
-                            ],
-                            "edges": []
-                        }
-                        strategy_name = "Mock Strategy - MA Crossover"
+                        error_msg = f"Database error: {str(db_error)}"
+                        print(f"❌ {error_msg}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": error_msg
+                        })
+                        continue
                 
                 # Send acknowledgment
                 await websocket.send_json({
@@ -164,11 +159,27 @@ async def websocket_backtest_endpoint(websocket: WebSocket):
                     """Callback to stream updates to WebSocket"""
                     try:
                         await websocket.send_json(update)
+                        # Only log important events, not every agent_output
+                        update_type = update.get('type', 'unknown')
+                        if update_type not in ['agent_output']:
+                            print(f"📨 {update_type}: agent_{update.get('agent_id', '?')}")
                     except Exception as e:
-                        print(f"Error streaming update: {e}")
+                        print(f"❌ Error streaming update: {e}")
+                        raise  # Re-raise to stop execution if WebSocket fails
                 
                 # Execute strategy with streaming
                 try:
+                    print(f"🚀 Starting strategy execution for {strategy_id}")
+                    print(f"   Strategy name: {strategy_name}")
+                    print(f"   Params: {params}")
+                    
+                    # Send initial acknowledgment to keep connection alive
+                    await websocket.send_json({
+                        "type": "execution_started",
+                        "strategy_id": strategy_id,
+                        "message": "Initializing CrewAI agents..."
+                    })
+                    
                     result = await strategy_execution_service.execute_strategy_with_streaming(
                         strategy_id=strategy_id,
                         strategy_schema=strategy_schema,
@@ -176,6 +187,9 @@ async def websocket_backtest_endpoint(websocket: WebSocket):
                         params=params,
                         callback=stream_callback
                     )
+                    
+                    print(f"✅ Strategy execution completed successfully")
+                    print(f"   Result: {result}")
                     
                     # Send completion message
                     await websocket.send_json({
@@ -186,13 +200,16 @@ async def websocket_backtest_endpoint(websocket: WebSocket):
                 except Exception as e:
                     import traceback
                     error_trace = traceback.format_exc()
-                    print(f"Execution error: {error_trace}")
+                    print(f"❌ Execution error: {error_trace}")
                     
-                    await websocket.send_json({
-                        "type": "error",
-                        "error": str(e),
-                        "traceback": error_trace
-                    })
+                    try:
+                        await websocket.send_json({
+                            "type": "error",
+                            "error": str(e),
+                            "traceback": error_trace
+                        })
+                    except:
+                        print("Failed to send error message - WebSocket already closed")
             
             elif message_data.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})

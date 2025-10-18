@@ -122,7 +122,13 @@ export default function BacktestSimulator() {
     }
 
     // Extract strategy ID from sessionStorage
-    const strategyId = strategyData.strategyId || strategyData.id || 'test-strategy-id';
+    const strategyId = strategyData.strategyId || strategyData.id;
+    
+    if (!strategyId) {
+      console.error('No strategy ID found. Strategy must be saved to database first.');
+      alert('Strategy ID not found. Please go back and save the strategy first.');
+      return;
+    }
     
     // Prepare execution parameters
     const executionParams: any = {

@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime
 import json
-from ..models import Strategy, StrategyMetrics, StrategySchema
+from ..models import Strategy, StrategyMetrics, StrategySchema, Guardrail
 from ..database import get_database
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
@@ -28,15 +28,20 @@ async def create_strategy(strategy: Strategy):
             json.dumps(strategy.metrics.model_dump()) if strategy.metrics else None
         )
     
+    # Parse JSON fields if they're strings
+    schema_data = row['schema_json'] if isinstance(row['schema_json'], dict) else json.loads(row['schema_json'])
+    metrics_data = row['metrics'] if isinstance(row['metrics'], dict) else (json.loads(row['metrics']) if row['metrics'] else None)
+    guardrails_data = row['guardrails'] if isinstance(row['guardrails'], dict) else json.loads(row['guardrails'])
+    
     return Strategy(
         id=str(row['id']),
         user_id=row['user_id'],
         name=row['name'],
         description=row['description'],
         status=row['status'],
-        schema_json=StrategySchema(**row['schema_json']),
-        guardrails=[],
-        metrics=StrategyMetrics(**row['metrics']) if row['metrics'] else None,
+        schema_json=StrategySchema(**schema_data),
+        guardrails=[Guardrail(**g) for g in guardrails_data],
+        metrics=StrategyMetrics(**metrics_data) if metrics_data else None,
         created_at=row['created_at'],
         updated_at=row['updated_at']
     )
@@ -78,15 +83,20 @@ async def get_strategies(
     
     strategies = []
     for row in rows:
+        # Parse JSON fields if they're strings
+        schema_data = row['schema_json'] if isinstance(row['schema_json'], dict) else json.loads(row['schema_json'])
+        metrics_data = row['metrics'] if isinstance(row['metrics'], dict) else (json.loads(row['metrics']) if row['metrics'] else None)
+        guardrails_data = row['guardrails'] if isinstance(row['guardrails'], dict) else json.loads(row['guardrails'])
+        
         strategies.append(Strategy(
             id=str(row['id']),
             user_id=row['user_id'],
             name=row['name'],
             description=row['description'],
             status=row['status'],
-            schema_json=StrategySchema(**row['schema_json']),
-            guardrails=[],
-            metrics=StrategyMetrics(**row['metrics']) if row['metrics'] else None,
+            schema_json=StrategySchema(**schema_data),
+            guardrails=[Guardrail(**g) for g in guardrails_data],
+            metrics=StrategyMetrics(**metrics_data) if metrics_data else None,
             created_at=row['created_at'],
             updated_at=row['updated_at']
         ))
@@ -111,15 +121,20 @@ async def get_strategy(strategy_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="Strategy not found")
     
+    # Parse JSON fields if they're strings
+    schema_data = row['schema_json'] if isinstance(row['schema_json'], dict) else json.loads(row['schema_json'])
+    metrics_data = row['metrics'] if isinstance(row['metrics'], dict) else (json.loads(row['metrics']) if row['metrics'] else None)
+    guardrails_data = row['guardrails'] if isinstance(row['guardrails'], dict) else json.loads(row['guardrails'])
+    
     return Strategy(
         id=str(row['id']),
         user_id=row['user_id'],
         name=row['name'],
         description=row['description'],
         status=row['status'],
-        schema_json=StrategySchema(**row['schema_json']),
-        guardrails=[],
-        metrics=StrategyMetrics(**row['metrics']) if row['metrics'] else None,
+        schema_json=StrategySchema(**schema_data),
+        guardrails=[Guardrail(**g) for g in guardrails_data],
+        metrics=StrategyMetrics(**metrics_data) if metrics_data else None,
         created_at=row['created_at'],
         updated_at=row['updated_at']
     )
@@ -151,15 +166,20 @@ async def update_strategy(strategy_id: str, strategy: Strategy):
     if not row:
         raise HTTPException(status_code=404, detail="Strategy not found")
     
+    # Parse JSON fields if they're strings
+    schema_data = row['schema_json'] if isinstance(row['schema_json'], dict) else json.loads(row['schema_json'])
+    metrics_data = row['metrics'] if isinstance(row['metrics'], dict) else (json.loads(row['metrics']) if row['metrics'] else None)
+    guardrails_data = row['guardrails'] if isinstance(row['guardrails'], dict) else json.loads(row['guardrails'])
+    
     return Strategy(
         id=str(row['id']),
         user_id=row['user_id'],
         name=row['name'],
         description=row['description'],
         status=row['status'],
-        schema_json=StrategySchema(**row['schema_json']),
-        guardrails=[],
-        metrics=StrategyMetrics(**row['metrics']) if row['metrics'] else None,
+        schema_json=StrategySchema(**schema_data),
+        guardrails=[Guardrail(**g) for g in guardrails_data],
+        metrics=StrategyMetrics(**metrics_data) if metrics_data else None,
         created_at=row['created_at'],
         updated_at=row['updated_at']
     )

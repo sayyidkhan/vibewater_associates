@@ -327,23 +327,81 @@ export default function StrategyBuilder({ schema, onSchemaChange, initialData, o
     }
   };
 
-  const handleRunBacktest = () => {
-    // Save current strategy data to sessionStorage
-    const backtestData = {
-      strategyJson,
-      messages,
-      nodes,
-      edges,
-      duration,
-      estimatedCapital,
-      monthlyReturn,
-      guardrails: currentGuardrails,
-    };
-    
-    sessionStorage.setItem('backtestData', JSON.stringify(backtestData));
-    
-    // Navigate to backtest simulator
-    router.push('/backtest-simulator');
+  const handleRunBacktest = async () => {
+    try {
+      // First, save strategy to database to get a UUID
+      const strategyPayload = {
+        user_id: "demo-user", // TODO: Replace with actual user ID from auth
+        name: "AI Generated Strategy",
+        description: "Strategy created via AI assistant",
+        status: "Backtest",
+        schema_json: {
+          nodes: nodes.map(node => ({
+            id: node.id,
+            type: node.type,
+            data: node.data || {},
+            position: node.position || { x: 0, y: 0 }
+          })),
+          connections: edges.map((edge, index) => ({
+            id: edge.id || `edge-${index}`,
+            source: edge.source,
+            target: edge.target
+          }))
+        },
+        guardrails: currentGuardrails.length > 0 
+          ? currentGuardrails.map(g => ({
+              type: g.type || "info",
+              level: g.level || "info",
+              message: g.message || ""
+            }))
+          : [
+              { type: "no_short_selling", level: "info", message: "No short selling allowed" },
+              { type: "max_drawdown", level: "warning", message: "Maximum 10% drawdown limit" }
+            ]
+      };
+
+      console.log('Saving strategy to database...', strategyPayload);
+      
+      const response = await fetch('http://localhost:8000/strategies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(strategyPayload)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+        console.error('Failed to save strategy:', errorData);
+        throw new Error(`Failed to save strategy: ${JSON.stringify(errorData)}`);
+      }
+
+      const savedStrategy = await response.json();
+      console.log('Strategy saved with ID:', savedStrategy.id);
+
+      // Save strategy data with ID to sessionStorage
+      const backtestData = {
+        strategyId: savedStrategy.id, // Include the database UUID
+        name: savedStrategy.name,
+        strategyJson,
+        messages,
+        nodes,
+        edges,
+        duration,
+        estimatedCapital,
+        monthlyReturn,
+        guardrails: currentGuardrails,
+        flowchart: strategyPayload.schema_json, // Include schema for reference
+      };
+      
+      sessionStorage.setItem('backtestData', JSON.stringify(backtestData));
+      
+      // Navigate to backtest simulator
+      router.push('/backtest-simulator');
+    } catch (error) {
+      console.error('Error saving strategy:', error);
+      alert('Failed to save strategy. Please try again.');
+    }
   };
 
   return (

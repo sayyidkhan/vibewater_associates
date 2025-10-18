@@ -52,28 +52,51 @@ class StrategyExecutionService:
             'slippage': params.get('slippage', 0.001)
         }
         
+        # Get event loop
+        loop = asyncio.get_event_loop()
+        
         # Create a synchronous callback wrapper for the sync CrewAI execution
-        callback_queue = []
+        callback_queue = asyncio.Queue()
+        execution_complete = asyncio.Event()
         
         def sync_callback(update):
             """Synchronous callback that queues updates"""
-            callback_queue.append(update)
-        
-        # Execute with CrewAI agents in thread pool
-        import asyncio
-        loop = asyncio.get_event_loop()
+            try:
+                loop.call_soon_threadsafe(
+                    callback_queue.put_nowait, update
+                )
+            except Exception as e:
+                print(f"Error queuing update: {e}")
         
         # Start a task to emit queued updates
         async def emit_updates():
-            while True:
-                if callback_queue:
-                    update = callback_queue.pop(0)
-                    await callback(update)
-                await asyncio.sleep(0.1)
+            """Continuously emit updates from the queue"""
+            try:
+                while not execution_complete.is_set() or not callback_queue.empty():
+                    try:
+                        update = await asyncio.wait_for(callback_queue.get(), timeout=0.5)
+                        await callback(update)
+                        # Only log important events
+                        update_type = update.get('type', 'unknown')
+                        if update_type not in ['agent_output']:
+                            print(f"📤 Emitted: {update_type}")
+                    except asyncio.TimeoutError:
+                        # No updates in queue, continue waiting
+                        continue
+            except Exception as e:
+                print(f"Error in emit_updates: {e}")
         
         emit_task = asyncio.create_task(emit_updates())
         
         try:
+            print("🔄 Starting CrewAI execution in thread pool...")
+            
+            # Send initial status update
+            await callback({
+                "type": "execution_started",
+                "message": "Starting strategy analysis..."
+            })
+            
             result = await loop.run_in_executor(
                 None,
                 strategy_execution_crew.execute_strategy,
@@ -83,12 +106,27 @@ class StrategyExecutionService:
                 sync_callback
             )
             
-            # Wait a bit for final updates to be emitted
-            await asyncio.sleep(0.5)
+            print("✅ CrewAI execution completed")
+            
+            # Mark execution as complete
+            execution_complete.set()
+            
+            # Wait for all queued updates to be emitted
+            await asyncio.sleep(1.0)
             
             return result
             
+        except Exception as e:
+            print(f"❌ Error in execute_strategy_with_streaming: {e}")
+            import traceback
+            traceback.print_exc()
+            execution_complete.set()
+            raise
+            
         finally:
+            execution_complete.set()
+            # Wait for emit task to finish
+            await asyncio.sleep(0.5)
             emit_task.cancel()
             try:
                 await emit_task

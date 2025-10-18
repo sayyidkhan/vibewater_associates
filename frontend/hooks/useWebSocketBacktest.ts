@@ -120,7 +120,11 @@ export function useWebSocketBacktest(
                 console.log(`Agent ${data.agent_id} output:`, data.output);
                 setAgents(prev => prev.map(agent => {
                   if (agent.id === data.agent_id) {
-                    return { ...agent, output: data.output! };
+                    // Append output instead of replacing to show streaming logs
+                    const newOutput = agent.output 
+                      ? `${agent.output}\n${data.output}`
+                      : data.output!;
+                    return { ...agent, output: newOutput };
                   }
                   return agent;
                 }));
@@ -185,13 +189,8 @@ export function useWebSocketBacktest(
         console.log('WebSocket disconnected');
         setIsConnected(false);
         
-        // Attempt to reconnect after 3 seconds if not manually closed
-        if (isRunning) {
-          reconnectTimeoutRef.current = setTimeout(() => {
-            console.log('Attempting to reconnect...');
-            connect();
-          }, 3000);
-        }
+        // Don't auto-reconnect - let user manually retry
+        setIsRunning(false);
       };
       
       wsRef.current = ws;
@@ -199,7 +198,7 @@ export function useWebSocketBacktest(
       console.error('Error creating WebSocket:', err);
       setError('Failed to create WebSocket connection');
     }
-  }, [url, isRunning, currentAgentIndex]);
+  }, [url]);
 
   useEffect(() => {
     connect();
@@ -213,7 +212,7 @@ export function useWebSocketBacktest(
         wsRef.current.close();
       }
     };
-  }, [connect]);
+  }, [url]);
 
   const startExecution = useCallback((params: ExecutionParams) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
