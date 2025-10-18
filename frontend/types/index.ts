@@ -129,4 +129,5 @@ export interface ParsedStrategy {
   rationale: string;
   estimated_return: number;
   required_capital: number;
+  duration?: string;
 }

@@ -64,3 +64,30 @@ body {
     text-wrap: balance;
   }
 }
+
+/* Custom animations for strategy loading */
+@keyframes slideRight {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(200%);
+    opacity: 0.6;
+  }
+}
