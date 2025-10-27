@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from .config import settings
 from .database import connect_to_postgres, close_postgres_connection
-from .routers import chat, strategies, backtests, websocket_chat, executions, websocket_backtest
+from .routers import chat, strategies, backtests, websocket_chat, executions, websocket_backtest, research
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -58,6 +58,7 @@ app.include_router(backtests.router)
 app.include_router(websocket_chat.router)
 app.include_router(websocket_backtest.router)
 app.include_router(executions.router)
+app.include_router(research.router)
 
 @app.get("/")
 async def root():

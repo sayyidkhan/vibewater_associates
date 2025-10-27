@@ -81,3 +81,62 @@ $$ language 'plpgsql';
 -- Trigger to auto-update updated_at for strategies
 CREATE TRIGGER update_strategies_updated_at BEFORE UPDATE ON strategies
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Research sessions table to track research agent activities
+CREATE TABLE IF NOT EXISTS research_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id TEXT NOT NULL,
+    session_type TEXT NOT NULL CHECK (session_type IN ('strategy_research', 'autonomous_backtest', 'full_pipeline')),
+    parameters JSONB NOT NULL DEFAULT '{}'::jsonb,
+    status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed')),
+    strategies_found INTEGER DEFAULT 0,
+    strategies_tested INTEGER DEFAULT 0,
+    top_strategy_id TEXT,
+    results JSONB,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+
+-- Strategy performance rankings table
+CREATE TABLE IF NOT EXISTS strategy_performance_rankings (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    research_session_id UUID REFERENCES research_sessions(id) ON DELETE CASCADE,
+    strategy_id TEXT NOT NULL,
+    strategy_name TEXT NOT NULL,
+    performance_score DECIMAL(5,2) NOT NULL,
+    risk_adjusted_return DECIMAL(10,4),
+    consistency_score DECIMAL(5,4),
+    market_adaptability DECIMAL(5,4),
+    rank_position INTEGER NOT NULL,
+    backtest_metrics JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Research agent insights table for storing discovered patterns and learnings
+CREATE TABLE IF NOT EXISTS research_insights (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    insight_type TEXT NOT NULL CHECK (insight_type IN ('market_pattern', 'strategy_performance', 'risk_factor', 'optimization')),
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    confidence_score DECIMAL(3,2) CHECK (confidence_score >= 0 AND confidence_score <= 1),
+    market_conditions JSONB,
+    related_strategies TEXT[],
+    supporting_data JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Create additional indexes for research tables
+CREATE INDEX IF NOT EXISTS idx_research_sessions_user_id ON research_sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_research_sessions_status ON research_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_research_sessions_created_at ON research_sessions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_strategy_performance_rankings_session_id ON strategy_performance_rankings(research_session_id);
+CREATE INDEX IF NOT EXISTS idx_strategy_performance_rankings_strategy_id ON strategy_performance_rankings(strategy_id);
+CREATE INDEX IF NOT EXISTS idx_strategy_performance_rankings_performance_score ON strategy_performance_rankings(performance_score DESC);
+CREATE INDEX IF NOT EXISTS idx_research_insights_type ON research_insights(insight_type);
+CREATE INDEX IF NOT EXISTS idx_research_insights_confidence ON research_insights(confidence_score DESC);
+
+-- Trigger to auto-update updated_at for research_insights
+CREATE TRIGGER update_research_insights_updated_at BEFORE UPDATE ON research_insights
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

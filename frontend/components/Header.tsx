@@ -56,6 +56,19 @@ export default function Header() {
           </svg>
           <span className="text-[10px]">Strategies</span>
         </Link>
+        <Link
+          href="/research"
+          title="AI Research Agent"
+          className={cn(
+            "flex flex-col items-center gap-1 text-xs font-medium transition-colors hover:text-primary px-3 py-2 rounded-lg",
+            pathname === "/research" ? "text-primary bg-primary/10" : "text-gray-400"
+          )}
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <span className="text-[10px]">Research</span>
+        </Link>
       </nav>
     </aside>
   );

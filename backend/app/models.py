@@ -146,3 +146,45 @@ class StrategyExecution(BaseModel):
 class ExecuteStrategyRequest(BaseModel):
     """Request to execute a strategy"""
     params: BacktestParams
+
+class ResearchedStrategy(BaseModel):
+    """A strategy discovered by the research agent"""
+    id: Optional[str] = None
+    name: str
+    description: str
+    category: str  # e.g., "momentum", "mean_reversion", "breakout", "arbitrage"
+    market_type: str  # e.g., "crypto", "forex", "stocks", "commodities"
+    complexity: Literal["simple", "intermediate", "advanced"]
+    expected_return: float
+    risk_level: Literal["low", "medium", "high"]
+    schema_json: StrategySchema
+    guardrails: List[Guardrail]
+    research_source: str  # Where the strategy was discovered
+    confidence_score: float  # 0-1 confidence in strategy viability
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class ResearchRequest(BaseModel):
+    """Request to research strategies"""
+    market_focus: Optional[str] = None  # e.g., "crypto", "forex"
+    strategy_types: Optional[List[str]] = None  # e.g., ["momentum", "mean_reversion"]
+    risk_tolerance: Optional[Literal["low", "medium", "high"]] = None
+    max_strategies: int = 5
+    research_depth: Literal["quick", "thorough"] = "quick"
+
+class AutonomousBacktestRequest(BaseModel):
+    """Request for autonomous backtesting"""
+    strategy_ids: Optional[List[str]] = None  # If None, research new strategies
+    market_conditions: Optional[Dict[str, Any]] = None
+    performance_criteria: Optional[Dict[str, float]] = None  # min_sharpe, min_return, etc.
+    max_concurrent_tests: int = 3
+
+class StrategyPerformanceRanking(BaseModel):
+    """Performance ranking of strategies"""
+    strategy_id: str
+    strategy_name: str
+    performance_score: float  # Composite score 0-100
+    metrics: BacktestMetrics
+    risk_adjusted_return: float
+    consistency_score: float  # How consistent the strategy performs
+    market_adaptability: float  # How well it adapts to different market conditions
+    rank: int
