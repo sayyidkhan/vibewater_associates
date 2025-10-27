@@ -21,7 +21,28 @@ docker-compose up -d
 
 ## 📖 Full Documentation
 
-See [PROJECT_README.md](./PROJECT_README.md) for complete setup instructions, architecture details, and API documentation.
+- **[PROJECT_README.md](./PROJECT_README.md)** - Complete setup instructions, architecture details, and API documentation
+- **[RESEARCH_AGENT_QUICKREF.md](./RESEARCH_AGENT_QUICKREF.md)** - 🆕 Research Agent Quick Reference
+- **[RESEARCH_AGENT_GUIDE.md](./RESEARCH_AGENT_GUIDE.md)** - 🆕 Complete Research Agent Documentation
+
+---
+
+## 🆕 Research Agent
+
+The Research Agent is an autonomous AI system that can:
+- ✅ Research trading strategies based on market conditions
+- ✅ Generate multiple strategy schemas automatically
+- ✅ Add strategies to the database
+- ✅ Run backtests autonomously
+- ✅ Identify highest probability performers
+
+**Quick Start:**
+```bash
+cd backend
+python quick_start_research.py
+```
+
+**Documentation:** See [RESEARCH_AGENT_QUICKREF.md](./RESEARCH_AGENT_QUICKREF.md)
 
 ---
 
@@ -41,13 +62,14 @@ The Ideal persona would be:
 - Working Professionals 25 years old and above who want exposure in the crypto markets
 
 ## Key Features
-1. **Prompt Repository**: A centralized space to store, version, and retrieve trading prompts.
-2. **Version Control**: Versioning for prompts to track changes and manage iterations.
-3. **Collaboration Tools**: Built-in tools for teams to collaborate, discuss, and refine prompts.
-4. **Template Library**: Pre-designed templates for common trading and portfolio management use cases.
-5. **Integration**: APIs and integrations with trading platforms and data sources.
-6. **Analytics Dashboard**: Insights and analytics on prompt performance for better decision-making.
-7. **Access Control**: Role-based permissions for secure collaboration.
+1. **🤖 Research Agent (NEW!)**: Autonomous AI agent that researches strategies, generates them, runs backtests, and identifies highest probability performers. [Quick Start →](RESEARCH_AGENT_QUICKREF.md)
+2. **Prompt Repository**: A centralized space to store, version, and retrieve trading prompts.
+3. **Version Control**: Versioning for prompts to track changes and manage iterations.
+4. **Collaboration Tools**: Built-in tools for teams to collaborate, discuss, and refine prompts.
+5. **Template Library**: Pre-designed templates for common trading and portfolio management use cases.
+6. **Integration**: APIs and integrations with trading platforms and data sources.
+7. **Analytics Dashboard**: Insights and analytics on prompt performance for better decision-making.
+8. **Access Control**: Role-based permissions for secure collaboration.
 
 ## Success Metrics
 - Adoption rate by trading teams and financial firms.

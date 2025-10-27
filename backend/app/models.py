@@ -146,3 +146,21 @@ class StrategyExecution(BaseModel):
 class ExecuteStrategyRequest(BaseModel):
     """Request to execute a strategy"""
     params: BacktestParams
+
+class ResearchRequest(BaseModel):
+    """Request to run research agent"""
+    num_strategies: int = 5
+    market_focus: Optional[str] = None
+    risk_level: Literal["Low", "Medium", "High"] = "Medium"
+
+class ResearchResult(BaseModel):
+    """Result from research agent"""
+    id: Optional[str] = None
+    user_id: str
+    num_strategies_generated: int
+    strategies: List[Dict[str, Any]]
+    rankings: List[Dict[str, Any]]
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    status: Literal["running", "completed", "failed"] = "running"
+    error_message: Optional[str] = None
