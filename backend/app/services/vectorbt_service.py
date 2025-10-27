@@ -10,6 +10,175 @@ from ..config import settings
 class VectorBTBacktestService:
     """Service for running backtests using VectorBT library"""
     
+    async def run_schema_backtest(self, strategy_id: str, schema: 'StrategySchema', params: BacktestParams) -> BacktestRun:
+        """
+        Run a backtest based on a provided StrategySchema (supports MA and RSI strategies).
+        """
+        try:
+            # Determine symbol from category node (default BTC-USD)
+            symbol = 'BTC-USD'
+            stop_loss_pct = None
+            take_profit_pct = None
+            entry_rules: list[str] = []
+
+            # Extract simple fields from schema
+            try:
+                nodes = getattr(schema, 'nodes', [])
+            except Exception:
+                nodes = []
+
+            for node in nodes:
+                node_type = getattr(node, 'type', '')
+                node_data = getattr(node, 'data', {}) or {}
+                meta = node_data.get('meta', {}) if isinstance(node_data, dict) else {}
+                if node_type in ['category', 'crypto_category']:
+                    category = meta.get('category', 'Bitcoin')
+                    if category == 'Ethereum' or category == 'Layer1':
+                        symbol = 'ETH-USD'
+                    else:
+                        symbol = 'BTC-USD'
+                elif node_type in ['entry_condition', 'entry']:
+                    rules = meta.get('rules', [])
+                    if isinstance(rules, list):
+                        entry_rules.extend([str(r) for r in rules])
+                elif node_type in ['take_profit', 'exit_target']:
+                    take_profit_pct = float(meta.get('target_pct', 7.0))
+                elif node_type == 'stop_loss':
+                    stop_loss_pct = float(meta.get('stop_pct', 5.0))
+
+            # Fetch price data via Yahoo Finance
+            try:
+                price_data = vbt.YFData.download(
+                    symbol,
+                    start=params.start_date,
+                    end=params.end_date,
+                    missing_index='drop'
+                )
+                price = price_data.get('Close')
+                if price is None or len(price) == 0:
+                    raise ValueError('No price data received')
+            except Exception as e:
+                print(f"Yahoo Finance failed: {str(e)}; using mock data")
+                price = self._generate_mock_btc_data(params.start_date, params.end_date)
+
+            # Determine strategy type from rules
+            entries = None
+            exits = None
+
+            # Try to parse MA crossover like: "Enter when 10-day MA crosses above 30-day moving average"
+            import re as _re
+            ma_match = None
+            for rule in entry_rules:
+                m = _re.search(r"(\d+)[-\s]?day\s+MA\s+crosses\s+above\s+(\d+)[-\s]?day", rule, flags=_re.IGNORECASE)
+                if not m:
+                    m = _re.search(r"(\d+)[-\s]?day\s+moving\s+average.*(\d+)[-\s]?day", rule, flags=_re.IGNORECASE)
+                if m:
+                    ma_match = (int(m.group(1)), int(m.group(2)))
+                    break
+
+            if ma_match:
+                fast_period, slow_period = ma_match
+                fast_ma = vbt.MA.run(price, fast_period, short_name=f'ma_{fast_period}')
+                slow_ma = vbt.MA.run(price, slow_period, short_name=f'ma_{slow_period}')
+                entries = fast_ma.ma_crossed_above(slow_ma)
+                exits = fast_ma.ma_crossed_below(slow_ma)
+            else:
+                # Try RSI pattern like: "RSI 14 crosses below 30 and exit above 70"
+                rsi_match = None
+                for rule in entry_rules:
+                    m = _re.search(r"rsi[^\d]*(\d+).*below\s*(\d+).*above\s*(\d+)", rule, flags=_re.IGNORECASE)
+                    if m:
+                        rsi_match = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                        break
+                if rsi_match:
+                    rsi_period, buy_level, sell_level = rsi_match
+                    rsi = vbt.RSI.run(price, window=rsi_period)
+                    try:
+                        entries = rsi.rsi_crossed_below(buy_level)
+                        exits = rsi.rsi_crossed_above(sell_level)
+                    except Exception:
+                        # Fallback to threshold conditions if crossed_* not available
+                        entries = rsi.rsi < buy_level
+                        exits = rsi.rsi > sell_level
+
+            # Default to simple MA 10/30 crossover if nothing parsed
+            if entries is None or exits is None:
+                fast_ma = vbt.MA.run(price, 10, short_name='fast_ma')
+                slow_ma = vbt.MA.run(price, 30, short_name='slow_ma')
+                entries = fast_ma.ma_crossed_above(slow_ma)
+                exits = fast_ma.ma_crossed_below(slow_ma)
+
+            # Portfolio simulation
+            portfolio = vbt.Portfolio.from_signals(
+                close=price,
+                entries=entries,
+                exits=exits,
+                init_cash=params.initial_capital,
+                fees=params.fees,
+                slippage=params.slippage,
+                sl_stop=(stop_loss_pct / 100.0) if stop_loss_pct is not None else None,
+                tp_stop=(take_profit_pct / 100.0) if take_profit_pct is not None else None,
+                freq='1D'
+            )
+
+            # Metrics
+            total_return = portfolio.total_return() * 100
+            sharpe_ratio = portfolio.sharpe_ratio()
+            max_drawdown = portfolio.max_drawdown() * 100
+            win_rate = portfolio.trades.win_rate() * 100 if portfolio.trades.count() > 0 else 0
+            total_trades = portfolio.trades.count()
+
+            years = (pd.to_datetime(params.end_date) - pd.to_datetime(params.start_date)).days / 365.25
+            cagr = ((portfolio.final_value() / params.initial_capital) ** (1 / years) - 1) * 100 if years > 0 else 0
+
+            # Gain/loss
+            if portfolio.trades.count() > 0:
+                trades_pnl = portfolio.trades.pnl.values
+                winning_trades_pnl = trades_pnl[trades_pnl > 0].sum()
+                losing_trades_pnl = abs(trades_pnl[trades_pnl < 0].sum())
+            else:
+                winning_trades_pnl = 0
+                losing_trades_pnl = 0
+
+            benchmark_pf = vbt.Portfolio.from_holding(price, init_cash=params.initial_capital)
+            benchmark_return = benchmark_pf.total_return() * 100
+            vs_benchmark = total_return - benchmark_return
+
+            equity_series = self._create_equity_series(portfolio.value(), benchmark_pf.value(), price)
+            trades = self._extract_trades(portfolio)
+
+            metrics = BacktestMetrics(
+                total_amount_invested=params.initial_capital,
+                total_gain=winning_trades_pnl,
+                total_loss=losing_trades_pnl,
+                total_return=round(float(total_return), 2),
+                cagr=round(float(cagr), 2),
+                sharpe_ratio=round(float(sharpe_ratio), 2),
+                max_drawdown=round(float(max_drawdown), 2),
+                max_drawdown_duration=0,
+                win_rate=round(float(win_rate), 1),
+                trades=int(total_trades),
+                vs_benchmark=round(float(vs_benchmark), 2),
+            )
+
+            backtest_run = BacktestRun(
+                id=f"vbt-{datetime.utcnow().timestamp()}",
+                strategy_id=strategy_id,
+                params=params,
+                metrics=metrics,
+                equity_series=equity_series,
+                drawdown_series=[],
+                monthly_returns=[],
+                trades=trades,
+                created_at=datetime.utcnow(),
+            )
+
+            return backtest_run
+
+        except Exception as e:
+            print(f"Error running schema backtest: {str(e)}")
+            raise Exception(f"VectorBT schema backtest failed: {str(e)}")
+
     async def run_bitcoin_backtest(self, strategy_id: str, params: BacktestParams) -> BacktestRun:
         """
         Run a backtest for Bitcoin using VectorBT with moving average crossover strategy.

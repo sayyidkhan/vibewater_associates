@@ -146,3 +146,34 @@ class StrategyExecution(BaseModel):
 class ExecuteStrategyRequest(BaseModel):
     """Request to execute a strategy"""
     params: BacktestParams
+
+
+# === Research models ===
+class ResearchRequest(BaseModel):
+    """Parameters for autonomous strategy research and backtesting"""
+    user_id: str = "user1"
+    symbols: List[str] = ["BTC"]
+    timeframe: str = "1D"
+    start_date: str = "2024-01-01"
+    end_date: str = "2024-12-31"
+    initial_capital: float = 10000.0
+    fees: float = 0.001
+    slippage: float = 0.001
+    num_candidates: int = 6
+    families: List[str] = ["ma", "rsi"]  # allowed: ma, rsi
+    top_n: int = 3
+
+
+class ResearchCandidateSummary(BaseModel):
+    """Summary of a researched candidate with performance score"""
+    strategy_id: Optional[str] = None
+    backtest_id: Optional[str] = None
+    strategy_name: str
+    metrics: BacktestMetrics
+    score: float
+
+
+class ResearchResult(BaseModel):
+    """Result of a research run containing ranked candidates"""
+    top_candidates: List[ResearchCandidateSummary]
+    all_candidates: List[ResearchCandidateSummary]
